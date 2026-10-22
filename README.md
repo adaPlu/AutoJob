@@ -41,7 +41,7 @@ The built-in form filler is rules-based and runs locally; no hosted inference se
    cd AutoJob
    ```
 
-   This command clones the current public `main` branch.
+   (This URL will become usable once the remote repository has been created and pushed.)
 
 2. Double-click **`EDIT_PROFILE.bat`**. On first use it creates `config.json` and `profile.json` from the included `.example.json` templates and opens them in Notepad.
 3. Fill out your own `profile.json`: name, email, phone, geographic location, contact links, work authorization/sponsorship answers, skills, and any specific `applicationAnswers` you can truthfully provide. **Never guess legal, eligibility, or demographic answers.**
