@@ -108,7 +108,7 @@
   "coverLetterText": "",
   "maxDiscoverySearchesPerRun": 500,
   "jobUrls": [],
-  "_bundleVersion": "1.5.1",
+  "_bundleVersion": "1.5.2",
   "maxQueriesPerSource": 20,
   "maxPagesPerSearch": 2,
   "maxFeedPages": 2,
@@ -135,5 +135,6 @@
     "cookiePreference": "accept-all",
     "dismissInformationalNotices": true,
     "maxActions": 8
-  }
+  },
+  "itemInactivityTimeoutMs": 300000
 }

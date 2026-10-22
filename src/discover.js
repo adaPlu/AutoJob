@@ -302,7 +302,7 @@ async function extractLinksSafely(page, attempts = 5) {
   throw lastError || new Error('Unable to extract job links from the current page.');
 }
 
-export async function discoverFromSource(page, source, query, limit=15, maxPages=2, config={}) {
+export async function discoverFromSource(page, source, query, limit=15, maxPages=2, config={}, {signal,progress=()=>{}}={}) {
   const def = SOURCE_DEFS[source];
   if (!def) return [];
   const url = def.search(query);
@@ -310,10 +310,13 @@ export async function discoverFromSource(page, source, query, limit=15, maxPages
   maxPages=Math.max(1,Math.min(3,Number(maxPages)||2));
   let current=url;
   for(let pageNumber=0;pageNumber<maxPages && out.length<limit;pageNumber++){
+    if(signal?.aborted)throw signal.reason;
     if(visited.has(current))break;
     visited.add(current);
     await page.goto(current, {waitUntil:'domcontentloaded',timeout:30000}).catch(()=>{});
     await waitForPageToSettle(page);
+    if(signal?.aborted)throw signal.reason;
+    progress(`search-page-${pageNumber+1}`);
     await handleSiteAcknowledgements(page,config);
     const text=(await page.locator('body').innerText({timeout:5000}).catch(()=>''))||'';
     if(/captcha|verify you are human|unusual traffic|access denied|robot check/i.test(text)) {
@@ -350,6 +353,7 @@ export async function discoverFromSource(page, source, query, limit=15, maxPages
       return found;
     }).catch(()=>[]);
     for(const l of [...links,...schemaJobs]){
+      if(signal?.aborted)throw signal.reason;
       const n=normalizeUrl(l.href,page.url()||current);
       if(!n||seen.has(n)||!isJobUrl(n,source)||/\/(?:login|signup|people|posts|feed)(?:\/|$)/i.test(n))continue;
       seen.add(n);out.push({source,query,url:n,anchorText:l.text});

@@ -49,18 +49,21 @@ export function convertRemotive(data,config) {
   return out.sort(byNewest);
 }
 
-async function jsonFetch(url,fetchFn) {
+async function jsonFetch(url,fetchFn,externalSignal) {
   const controller=new AbortController();
-  const timer=setTimeout(()=>controller.abort(),18000);
+  const propagateAbort=()=>controller.abort(externalSignal.reason);
+  if (externalSignal?.aborted) propagateAbort();
+  else externalSignal?.addEventListener('abort',propagateAbort,{once:true});
+  const timer=setTimeout(()=>controller.abort(new Error('Feed request timed out')),18000);
   try {
     const response=await fetchFn(url,{signal:controller.signal,headers:{Accept:'application/json'}});
     if(!response.ok) throw new Error(`Feed HTTP ${response.status}`);
     const obj=await response.json();
     if (obj?.success === false) throw new Error(String(obj.error||'Feed rejected request'));
     return obj;
-  } finally { clearTimeout(timer); }
+  } finally { clearTimeout(timer); externalSignal?.removeEventListener('abort',propagateAbort); }
 }
-export async function discoverFromFeed(source,config,limit=80,{fetchFn=globalThis.fetch}={}) {
+export async function discoverFromFeed(source,config,limit=80,{fetchFn=globalThis.fetch,signal}={}) {
   const cap=Math.max(1,Math.min(200,Number(limit)||80));
   if(source==='jobicy') {
     const uri=new URL('https://jobicy.com/api/v2/remote-jobs');
@@ -70,7 +73,8 @@ export async function discoverFromFeed(source,config,limit=80,{fetchFn=globalThi
     let cursor='';
     for (let page=0;page<pages;page++) {
       if (cursor) uri.searchParams.set('cursor',cursor);
-      const data=await jsonFetch(uri.toString(),fetchFn);
+      if(signal?.aborted)throw signal.reason;
+      const data=await jsonFetch(uri.toString(),fetchFn,signal);
       for (const job of convertJobicy(data,config)) if(!seen.has(job.url)){seen.add(job.url);out.push(job);}
       if(out.length>=cap || !data.nextCursor || !data.hasMore) break;
       cursor=String(data.nextCursor);
@@ -79,7 +83,7 @@ export async function discoverFromFeed(source,config,limit=80,{fetchFn=globalThi
   }
   if(source==='remotive') {
     const uri='https://remotive.com/api/remote-jobs?category=software-dev&limit=100';
-    return convertRemotive(await jsonFetch(uri,fetchFn),config).slice(0,cap);
+    return convertRemotive(await jsonFetch(uri,fetchFn,signal),config).slice(0,cap);
   }
   return [];
 }

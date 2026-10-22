@@ -12,7 +12,7 @@ const statuses={};for(const r of rows)statuses[r.status]=(statuses[r.status]||0)
 console.log('\n=========== APPLICATION EVIDENCE ===========');
 console.log(`Total historical log rows: ${rows.length}`);
 console.log(`Latest run: ${parsed?.createdAt||'No run summary available'}`);
-if(parsed){console.log(`Job pages/process attempts: ${parsed.jobsProcessed||0}`);console.log(`Simplify Autofill clicks: ${parsed.simplifyClicks||0} across ${parsed.simplifyUsed||0} jobs (not submission receipts)`);console.log(`Candidate links found (not applications): ${Number(parsed.feedLinks||0)+Number(parsed.browserLinks||0)}`);console.log(`Browser-confirmed submissions: ${parsed.confirmed||0}`);console.log(`Browser success but needs independent proof: ${parsed.pendingReceipt||0}`);console.log(`Submit clicked, unverified: ${parsed.unverified||0}`);console.log(`Employer email receipts reconciled by program: 0 (not connected)`);}
+if(parsed){console.log(`Job pages/process attempts: ${parsed.jobsProcessed||0}`);console.log(`Simplify Autofill clicks: ${parsed.simplifyClicks||0} across ${parsed.simplifyUsed||0} jobs (not submission receipts)`);console.log(`Candidate links found (not applications): ${Number(parsed.feedLinks||0)+Number(parsed.browserLinks||0)}`);console.log(`Browser-confirmed submissions: ${parsed.confirmed||0}`);console.log(`Browser success but needs independent proof: ${parsed.pendingReceipt||0}`);console.log(`Submit clicked, unverified: ${parsed.unverified||0}`);console.log(`Employer email receipts reconciled by program: 0 (not connected)`);console.log(`Stalled items skipped by watchdog: ${parsed.watchdogTimeoutCount||0}`);}
 if(parsed){
   console.log('\n----- PER-SITE AUTOMATION -----');
   const enabled=parsed.loginStage?.autoEnabledSources||[];

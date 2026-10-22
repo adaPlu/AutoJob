@@ -1,8 +1,8 @@
 # AutoJob — Job discovery and application assistant
 
-AutoJob is a **Windows-first, Node.js/Playwright automation project** that helps a job seeker discover postings, open real application pages in a dedicated Chrome session, populate supported forms, and record evidence about each application attempt. It integrates with the **Simplify Copilot Chrome extension when its visible Autofill control is available**, falling back to its own form-filling logic.
+AutoJob is a **Windows-first, Node.js/Playwright Core automation project** that helps a job seeker discover postings, open real application pages in a dedicated Chrome session, populate supported forms, and record evidence about each application attempt. It integrates with the **Simplify Copilot Chrome extension when its visible Autofill control is available**, falling back to its own form-filling logic.
 
-> **Release:** v1.5.1 (public-safe source edition)  
+> **Release:** v1.5.2 (public-safe source edition)
 > **Status:** Source code for local use and testing; application sites change frequently. Automated form filling and simulated tests are **not proof** that a real employer received an application. No applicant résumé, passwords, browser sessions, or personal profile are included in this public repository.
 
 ## Features
@@ -18,6 +18,7 @@ AutoJob is a **Windows-first, Node.js/Playwright automation project** that helps
 | Simplify Copilot | Attempts to use the extension's visible autofill button, then fills supported gaps | The extension is separate software, not an API; it must be installed and signed in within AutoJob's Chrome profile |
 | Application attempts | Configurable automated final submit (`autoSubmit`) and 200-attempt per-run cap | Attempt is **not** acceptance; a click alone is not a successful application |
 | Audit | CSV logs, duplicate-submission ledger, verification artifacts, run summaries, review-needed reports | Verify with employer receipts and application dashboards before claiming success |
+| Hang protection | 5-minute inactivity watchdog per application, search, or feed task; logs and skips stalled items | A possible in-flight submission remains uncertain; a frozen Chrome process may require manual restart |
 
 ## Requirements
 
@@ -29,7 +30,7 @@ AutoJob is a **Windows-first, Node.js/Playwright automation project** that helps
 - Optional: **Simplify Copilot** extension, installed in AutoJob's dedicated Chrome profile.
 - For publishing to GitHub: **Git for Windows** and **GitHub CLI (`gh`)**, signed in to your GitHub account.
 
-No OpenAI API key is required for the program's built-in rules-based form filler.
+The built-in form filler is rules-based and runs locally; no hosted inference service is required.
 
 ## Installation — Windows
 
@@ -99,6 +100,7 @@ Settings live in **private `config.json`**. Values from `config.example.json` ar
   "requireResumeUpload": true,
   "maxDiscoverySearchesPerRun": 500,
   "maxJobsPerRun": 200,
+  "itemInactivityTimeoutMs": 300000,
   "maxJobsPerSource": 12,
   "maxQueriesPerSource": 20,
   "maxPagesPerSearch": 2,
@@ -115,6 +117,7 @@ Settings live in **private `config.json`**. Values from `config.example.json` ar
 - `simplifyCopilot`: enables use of the visible extension control, with native fallback.
 - `siteAcknowledgements`: handles recognized cookie/info banners; this **does not** authorize employment contracts, background checks, attestations, or assessments.
 - `maxJobAttempts`: per-posting retry limit; uncertain prior submissions should not be blindly retried.
+- `itemInactivityTimeoutMs`: idle time before a job/form/search/feed is considered stalled; default is `300000` milliseconds (five minutes). A completed page/application milestone resets the timer. Do not set this too low for normal forms and slow sites.
 
 **Counter definitions matter:** `maxJobsPerRun=200` is a cap on *application attempts*, not 200 guaranteed completed submissions. `maxDiscoverySearchesPerRun=500` is a cap on *planned browser searches*, which might stop earlier if the application cap is reached.
 
@@ -148,7 +151,7 @@ Edit private config/profile + supply résumé
                |
     Submit (only if enabled/safe)
                |
- Evidence + local logs + receipts
+ Evidence + local logs + manual receipt review
 ```
 
 At the end of a run, inspect:
@@ -170,6 +173,7 @@ At the end of a run, inspect:
 - **`AUTO-ENABLED (sign-in unverified)`:** searching is permitted but login is *not guaranteed*. Sign in if the site still displays a login form.
 - **`HUMAN-VERIFICATION`:** complete any CAPTCHA/MFA manually in Chrome; AutoJob does not bypass these controls.
 - **Blank or incomplete application:** the employer may use an unsupported form; use `REVIEW_BLOCKERS.bat`, update truthful answers, and retry only if the ledger permits it.
+- **`timed-out` or `WATCHDOG` message:** AutoJob waited five minutes without a completed progress milestone, closed the stalled item, and continued. Check `outbox/last-run-summary.json`, `data/application-log.csv`, and `outbox/review-needed.csv`. For possible submissions, verify employer receipt **before** any retry.
 - **No completed applications:** check per-site candidate and attempt counts in `VIEW_RESULTS.bat`; the run can discover zero valid postings, encounter site blocks, or stop before submitting.
 - **Duplicate concern:** use `IMPORT_OLD_HISTORY.bat` before the first run of a new installation, then inspect the existing ledger rather than resubmitting uncertain applications.
 - **PowerShell initialization errors:** prefer `.bat` scripts; the primary launcher does not require a PowerShell script to orchestrate its steps.
@@ -184,7 +188,7 @@ AutoJob/
 ├── PUBLISH_TO_GITHUB.bat, PUSH_CHANGES.bat
 ├── config.example.json, profile.example.json
 ├── package.json
-├── src/            # Feed discovery, job search, forms, matching, submission checks
+├── src/            # Feed discovery, watchdog, forms, matching, submission checks
 ├── scripts/        # Chrome startup & readiness
 ├── tests/          # Unit and simulated browser workflows
 └── docs/           # Security and architecture reference
@@ -197,3 +201,55 @@ AutoJob/
 Site terms, anti-bot controls, and employer instructions still apply. Do not automate CAPTCHA bypass, make up qualifications, or accept legally meaningful terms on somebody else's behalf. High-volume submissions can be unreliable and may trigger account restrictions.
 
 This is an independently developed workflow; it is **not affiliated with or endorsed by Simplify, LinkedIn, Indeed, or other job boards**. No open-source license has been chosen yet, so please obtain the owner's permission before redistribution or reuse beyond what copyright law allows.
+
+
+## Five-minute inactivity watchdog (v1.5.2)
+
+Every *individual application attempt*, *browser search*, and *public feed fetch* runs with a **5-minute inactivity limit**. This is **not a 5-minute limit on the entire run**. Meaningful milestones—such as loading the posting, completing an application step, or navigating to another results page—reset the clock.
+
+If a task produces no progress for 300 seconds, AutoJob interrupts that item's browser activity where possible, logs `WATCHDOG`, saves `timed-out` (or `submit-clicked-unverified` if submission may already have occurred), and moves to the next candidate or site. The controller ends normally after the discovery plan has no more available tasks or the configured run limit is reached. If Chrome itself cannot be recovered, it ends the run with a report instead of hanging indefinitely.
+
+Set this in private `config.json` to change the threshold:
+
+```json
+"itemInactivityTimeoutMs": 300000
+```
+
+This should normally remain at five minutes. Timeout is **not** proof that an application failed to submit: check the target employer site or confirmation email before retrying.
+
+## Technology stack and tooling
+
+| Category | Technology | Usage in the actual codebase |
+| --- | --- | --- |
+| Language | **JavaScript (ECMAScript modules)** | Application modules under `src/`, tests under `tests/`, Chrome helper scripts under `scripts/` |
+| Runtime | **Node.js LTS** | Runs the CLI, filesystem operations, built-in `fetch`, `AbortController`, process and timers |
+| Package manager | **npm** | Installs `playwright-core` and runs `check`, `test`, `preflight`, `plan`, `report` scripts |
+| Browser automation | **Playwright Core** (`playwright-core`, version declared in `package.json`) | Navigates pages, finds controls, fills form fields, uploads résumé files, takes screenshots, detects dialogs |
+| Browser/debugging | **Google Chrome**, **Chrome DevTools Protocol (CDP)** | Attaches automation to dedicated, persistent local Chrome profile (`127.0.0.1:9222`) |
+| Windows orchestration | **Batch/CMD (.bat)** | One-click launcher, profile editing, Chrome startup, login stage and result viewers |
+| External autofill | **Simplify Copilot Chrome extension** *(optional)* | Uses its visible supported autofill button when available, then falls back to built-in form logic |
+| Discovery APIs | **Jobicy remote jobs API**, **Remotive public remote jobs API** | Reads structured JSON postings; does not submit applications over these APIs |
+| Job-site pages | **LinkedIn, Indeed, Simplify, Greenhouse, Lever, Ashby, Workday**, and other sources in `config.example.json` | Browser-based searches or individual application navigation; no private API integration claimed |
+| HTTP & parsing | Built-in **Fetch API**, **URL**, **JSON**, HTML DOM and Playwright locators | Requests feeds, normalizes posting URLs and inspects form controls |
+| Storage and exports | **JSON, CSV, Markdown, PNG, HTML** | Config, applicant profile, per-run summaries, CSV event logs, evidence files and documentation |
+| Deduplication | Node **`crypto` SHA-256** + URL normalization | Distinguishes postings and indexes write-ahead submission ledger records |
+| Stall recovery | **AbortController / AbortSignal**, timers, `Promise.race` | 300-second per-task inactivity watchdog and bounded tab cleanup |
+| Testing | Node **`node:test`** and **`node:assert/strict`** | Unit tests and integration tests with simulated Chrome/Chromium application pages |
+| Version control | **Git**, **GitHub** and **GitHub CLI (`gh`)** | Local history, remote public repository and Windows publishing helper scripts |
+
+**Not part of the stack:** No Python service, database server, cloud hosting or employer-application API is required by this release. Automated completion is best-effort because job websites and security controls change independently.
+
+### Developer and contributor workflow
+
+```powershell
+npm install
+npm run check       # JavaScript syntax validation
+npm test            # Unit tests (browser integrations require a compatible Chromium executable)
+npm run preflight   # Check private local config and resume
+npm run plan        # Build discovery search plan; no browser required
+npm run dry-run     # Open forms without final submissions
+npm run report      # Generate human-readable last-run summary
+npm run review      # Print saved blockers and timed-out applications
+```
+
+For the design and abort/timeout behavior, see [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md). For safe operation and data handling, see [`docs/SECURITY.md`](docs/SECURITY.md).

@@ -202,11 +202,15 @@ async function saveVerificationArtifact(page, outboxDir, job, result, observatio
   return {relative, captured:artifact.screenshotCaptured && artifact.htmlCaptured};
 }
 
-export async function processJob({context,job,config,profile,resumePath,outboxDir,fitScore,ledgerFile}) {
+export async function processJob({context,job,config,profile,resumePath,outboxDir,fitScore,ledgerFile,signal,registerPage=()=>{},progress=()=>{}}) {
+  const checkActive=()=>{ if(signal?.aborted) throw signal.reason || new Error('Item aborted by watchdog'); };
+  checkActive();
   const basePage=await context.newPage();
+  registerPage(basePage);
+  checkActive();
   basePage.setDefaultTimeout(10000);
   const pages=[basePage];
-  const onNewPage=(newPage)=>{ if (!pages.includes(newPage)) pages.push(newPage); };
+  const onNewPage=(newPage)=>{ if (!pages.includes(newPage)) pages.push(newPage); registerPage(newPage); };
   context.on('page',onNewPage);
   const result={
     timestamp:new Date().toISOString(), company:'', title:'', url:job.url, source:job.source,
@@ -218,12 +222,15 @@ export async function processJob({context,job,config,profile,resumePath,outboxDi
   };
   let writeAhead=false, attemptedClick=false;
   const clearNotices=async page=>{
+    checkActive();
     const handled=await handleSiteAcknowledgements(page,config);
     result.cookie_banners_accepted+=handled.cookieBannersAccepted;
     result.site_notices_dismissed+=handled.noticesDismissed;
   };
   try {
+    checkActive();
     await basePage.goto(job.url,{waitUntil:'domcontentloaded',timeout:30000});
+    checkActive();progress('job-posting-loaded');
     await wait(1200);
     await clearNotices(basePage);
     const original=await pageText(basePage);
@@ -250,6 +257,7 @@ export async function processJob({context,job,config,profile,resumePath,outboxDi
     // Job boards frequently open a second apply page/ATS before the actual form.
     // Follow up to three recognizable application CTAs; never click arbitrary Next buttons.
     for(let hop=0;!form && hop<3;hop++){
+      checkActive();
       await clearNotices(landing);
       const apply=await clickByNames(landing,[/^easy apply$/i,/^apply now$/i,/^apply$/i,/^apply for this job$/i,/^start application$/i,/^apply on company (?:site|website)$/i,/^continue to application$/i,/^apply on (?:external|company) site$/i,/^apply for (?:this|the) position$/i,/^apply to (?:this|the) (?:job|position)$/i,/^apply with linkedin$/i,/^apply using (?:resume|profile)$/i,/^start (?:your )?application$/i]);
       if(!apply.clicked){result.status='needs-review';result.blocker=`No application button found at ${landing.url()}`;return result;}
@@ -267,6 +275,7 @@ export async function processJob({context,job,config,profile,resumePath,outboxDi
     const simp=simplifySettings(config);
     const maxSteps=Math.max(1,Math.min(20,Number(config.maxApplicationSteps)||14));
     for (let step=0; step<maxSteps; step++) {
+      checkActive();progress(`application-step-${step+1}`);
       const page=activePage(pages,basePage);
       if (!page || page.isClosed()) {result.status='needs-review';result.blocker='Application window closed';return result;}
       await clearNotices(page);
@@ -343,9 +352,12 @@ export async function processJob({context,job,config,profile,resumePath,outboxDi
         });
         const submitLabel=await submit.innerText().catch(()=>'Submit');
         result.submitButton=normalizeEvidence(submitLabel);
+        // Abort must be checked immediately before the irreversible Submit action.
+        checkActive();
         // Write-ahead record survives a crash between clicking Submit and CSV append.
         updateLedger(ledgerFile,job.url,'submit-attempted',{company:result.company,title:result.title,submitButton:result.submitButton});
         writeAhead=true;
+        checkActive();
         try {await submit.click({timeout:10000});attemptedClick=true;}
         catch (error) {
           // A navigation race may mean the browser delivered the click before raising an error.
@@ -403,6 +415,7 @@ export async function processJob({context,job,config,profile,resumePath,outboxDi
       if (!next) {result.status='ready-no-submit-button';result.blocker=`No final submit or next-step button after step ${step+1}`;return result;}
       await clearNotices(page);
       const beforeUrl=page.url(), beforeFingerprint=await formFingerprint(form.root), beforeFrameCount=page.frames().length, beforePageCount=pages.length;
+      checkActive();
       try {await next.click({timeout:7500});}
       catch(error) {result.status='needs-review';result.blocker=`Could not advance application: ${normalizeEvidence(error.message)}`;return result;}
       let advanced=false;
@@ -434,7 +447,7 @@ export async function processJob({context,job,config,profile,resumePath,outboxDi
   } finally {
     // Retain a screenshot and HTML for every non-skipped result, not only submit attempts.
     // This lets a human inspect exactly where a workflow stalled.
-    if (!result.artifact_path && !result.status.startsWith('skipped-')) {
+    if (!signal?.aborted && !result.artifact_path && !result.status.startsWith('skipped-')) {
       const page=activePage(pages,basePage);
       if(page && !page.isClosed()) {
         try {

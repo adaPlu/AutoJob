@@ -51,7 +51,7 @@ for /f "usebackq delims=" %%F in (`git diff --cached --name-only`) do (
 set "HAS_STAGED="
 for /f "delims=" %%S in ('git diff --cached --name-only') do set "HAS_STAGED=1"
 if defined HAS_STAGED (
-  git commit -m "Publish AutoJob v1.5.1 public-safe source and setup guide"
+  git commit -m "Publish AutoJob v1.5.2 watchdog and documentation"
   if errorlevel 1 goto :failed
 )
 gh repo view "%TARGET%" >nul 2>nul

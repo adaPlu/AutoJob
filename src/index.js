@@ -6,14 +6,15 @@ import { discoverFromFeed } from './feeds.js';
 import { buildDiscoveryPlan } from './discovery-plan.js';
 import { processJob } from './apply.js';
 import { appendLog, ensureLog, applicationHistory, shouldSkipJob } from './log.js';
-import { ledgerPath, readLedger } from './submission-ledger.js';
+import { ledgerPath, readLedger, updateLedger } from './submission-ledger.js';
+import { runWithWatchdog, watchdogTimeoutMs, settleWithin } from './watchdog.js';
 import { loadJson, resolveFromRoot } from './profile.js';
 import { inspectConfiguration, requirePreflight } from './preflight.js';
 import { runPreLogin } from './prelogin.js';
 
 const here=path.dirname(fileURLToPath(import.meta.url));
 const root=path.resolve(here,'..');
-const BUNDLE_VERSION='1.5.1';
+const BUNDLE_VERSION='1.5.2';
 const flags=new Set(process.argv.slice(2).filter(x=>x.startsWith('--')));
 const dryRun=flags.has('--dry-run');
 const onlyPreflight=flags.has('--preflight');
@@ -75,11 +76,13 @@ const logPath=path.join(root,'data','application-log.csv');
 const outboxDir=path.join(root,'outbox');
 const ledgerFile=ledgerPath(root);
 ensureLog(logPath);
-let processed=0, discovered=0, searches=0, feedsLoaded=0, feedLinks=0, browserLinks=0, simplifyClicks=0, simplifyUsed=0;
+let processed=0, discovered=0, searches=0, feedsLoaded=0, feedLinks=0, browserLinks=0, simplifyClicks=0, simplifyUsed=0, timeouts=0;
 const skippedReasons={};
-const counts={confirmed:0,pendingReceipt:0,unverified:0,failed:0,blocked:0,readyNoSubmit:0,ready:0,needsReview:0,errors:0,alreadyApplied:0,invalidJob:0,loginRequired:0,other:0};
+const counts={confirmed:0,pendingReceipt:0,unverified:0,failed:0,blocked:0,readyNoSubmit:0,ready:0,needsReview:0,timedOut:0,errors:0,alreadyApplied:0,invalidJob:0,loginRequired:0,other:0};
 const recordSkip=r=>{skippedReasons[r]=(skippedReasons[r]||0)+1;};
 const maxJobs=Math.max(1,Number(config.maxJobsPerRun)||25);
+const watchdogMs=watchdogTimeoutMs(config);
+console.log(`Per-item inactivity watchdog: ${Math.floor(watchdogMs / 60000)} minute(s).`);
 const discoveryPlan=buildDiscoveryPlan(config);
 const maxSearches=discoveryPlan.searchBudget;
 console.log(`Discovery plan: ${discoveryPlan.browserTasks.length} planned browser searches across ${discoveryPlan.sourceCount} configured sources; stop after ${maxJobs} application attempts.`);
@@ -92,7 +95,7 @@ const seen=new Set();
 const history=applicationHistory(logPath);
 const ledger=readLedger(ledgerFile);
 const maxAttempts=Math.max(1,Number(config.maxJobAttempts)||3);
-const searchPage=await context.newPage();
+let searchPage=await context.newPage();
 searchPage.setDefaultTimeout(8500);
 
 async function attempt(job){
@@ -107,7 +110,25 @@ async function attempt(job){
   discovered++;
   console.log(`\n[${processed+1}/${maxJobs}] Opening application: ${url}`);
   let result;
-  try {result=await processJob({context,job:{...job,url},config:runConfig,profile,resumePath,outboxDir,fitScore:0,ledgerFile});}
+  try {
+    const openedPages = new Set();
+    const outcome=await runWithWatchdog({
+      label:`application ${url}`, timeoutMs:watchdogMs,
+      task:({signal,progress})=>processJob({context,job:{...job,url},config:runConfig,profile,resumePath,outboxDir,fitScore:0,ledgerFile,signal,progress,registerPage:p=>{openedPages.add(p);if(signal.aborted)p.close({runBeforeUnload:false}).catch(()=>{});}}),
+      onTimeout:()=>Promise.allSettled([...openedPages].map(p=>p.close({runBeforeUnload:false})))
+    });
+    if (outcome.timedOut) {
+      timeouts++;
+      // If Submit was already clicked, do not treat it as an ordinary retryable timeout.
+      const entry=readLedger(ledgerFile).get(url);
+      const uncertain=['submit-attempted','submit-clicked-unverified','submitted-pending-receipt'].includes(entry?.state);
+      if (uncertain) updateLedger(ledgerFile,url,'submit-clicked-unverified',{error:'Watchdog timeout after submission began; verify manually before retrying'});
+      result={timestamp:new Date().toISOString(),url,source:job.source||'',status:uncertain?'submit-clicked-unverified':'timed-out',
+        blocker:uncertain?'Watchdog: 5 minutes without progress after a possible submission; do not retry without verification.':'Watchdog: 5 minutes without progress; page closed and run continued.',
+        title:job.anchorText||'',company:'',fit_score:0,watchdogTimeout:true};
+    } else if (outcome.error) throw outcome.error;
+    else result=outcome.value;
+  }
   catch(error){
     result={timestamp:new Date().toISOString(),url,source:job.source||'',status:'error',blocker:String(error?.message||error),title:job.anchorText||'',company:'',fit_score:0};
   }
@@ -131,6 +152,7 @@ async function attempt(job){
     case 'already-applied':counts.alreadyApplied++;break;
     case 'skipped-not-individual-job':counts.invalidJob++;break;
     case 'authentication-required':counts.loginRequired++;break;
+    case 'timed-out':counts.timedOut++;break;
     case 'error':counts.errors++;break;
     default:counts.other++;break;
   }
@@ -163,7 +185,11 @@ try {
     if(processed>=maxJobs)break;
     try{
       console.log(`\nFetching ${jobBatch.source} remote listings (public API)...`);
-      const found=await discoverFromFeed(jobBatch.source,config,Number(config.maxFeedCandidates)||100);
+      const outcome=await runWithWatchdog({label:`feed ${jobBatch.source}`,timeoutMs:watchdogMs,
+        task:({signal})=>discoverFromFeed(jobBatch.source,config,Number(config.maxFeedCandidates)||100,{signal})});
+      if(outcome.timedOut){timeouts++;recordSkip(`feed-${jobBatch.source}-timeout`);continue;}
+      if(outcome.error)throw outcome.error;
+      const found=outcome.value;
       feedsLoaded++;feedLinks+=found.length;
       candidatesBySource[jobBatch.source]=(candidatesBySource[jobBatch.source]||0)+found.length;
       console.log(`  ${found.length} filtered listings in feed`);
@@ -188,8 +214,26 @@ try {
     browserSearchesBySource[source]=(browserSearchesBySource[source]||0)+1;
     console.log(`\nSearching ${source}: ${query} (${searches}/${maxSearches})`);
     let found=[];
-    try{found=await discoverFromSource(searchPage,source,query,Math.min(30,maxSourceJobs-sourceCount),Math.max(1,Number(config.maxPagesPerSearch)||2),config);}
-    catch(error){console.warn(`  Search failed: ${String(error.message||error).slice(0,180)}`);}
+    try {
+      const pageForSearch=searchPage;
+      const outcome=await runWithWatchdog({label:`search ${source}: ${query}`,timeoutMs:watchdogMs,
+        task:({signal,progress})=>discoverFromSource(pageForSearch,source,query,Math.min(30,maxSourceJobs-sourceCount),Math.max(1,Number(config.maxPagesPerSearch)||2),config,{signal,progress}),
+        onTimeout:()=>pageForSearch.close({runBeforeUnload:false})});
+      if(outcome.timedOut){
+        timeouts++;recordSkip(`search-${source}-timeout`);
+        const reset=await runWithWatchdog({label:'restore browser search tab',timeoutMs:watchdogMs,
+          task:({signal})=>context.newPage().then(page=>{if(signal.aborted){page.close().catch(()=>{});throw signal.reason;}return page;})});
+        if(reset.timedOut || reset.error){
+          console.error('Browser stopped responding while restoring the search tab; ending the run cleanly.');
+          break;
+        }
+        searchPage=reset.value;searchPage.setDefaultTimeout(8500);
+        console.warn(`  Search stalled; moved to the next configured search/site.`);
+        continue;
+      }
+      if(outcome.error)throw outcome.error;
+      found=outcome.value;
+    } catch(error){console.warn(`  Search failed: ${String(error.message||error).slice(0,180)}`);}
     browserLinks+=found.length;
     candidatesBySource[source]=(candidatesBySource[source]||0)+found.length;
     console.log(`  ${found.length} candidate link(s) found.`);
@@ -201,9 +245,9 @@ try {
     sourceCounts.set(source,sourceCount);
   }
 } finally {
-  await searchPage.close().catch(()=>{});
-  await browser.close().catch(()=>{});
-  const summary={createdAt:new Date().toISOString(),kind:dryRun?'dry-run':'live-attempt',jobsProcessed:processed,candidatesOpened:discovered,searches,searchBudget:maxSearches,plannedBrowserSearches:discoveryPlan.browserTasks.length,feedsLoaded,feedLinks,browserLinks,simplifyClicks,simplifyUsed,loginStage:{enabled:loginStage.enabled!==false,manualAcknowledgment:loginStage.enabled!==false,sitesOpened:loginStage.report?.siteCount||0,blockedSources:[...blockedSources],autoEnabledSources:loginStage.report?.autoEnabled||[],reportFile:loginStage.report?path.join(root,'data','prelogin-status.json'):null},discoverySources:discoveryPlan.sourceCount,browserSearchesBySource,applicationAttemptsBySource,candidatesBySource,...counts,skippedReasons,
+  await settleWithin(searchPage.close().catch(()=>{}),5000);
+  await settleWithin(browser.close().catch(()=>{}),5000);
+  const summary={watchdogTimeoutMs:watchdogMs,watchdogTimeoutCount:timeouts,createdAt:new Date().toISOString(),kind:dryRun?'dry-run':'live-attempt',jobsProcessed:processed,candidatesOpened:discovered,searches,searchBudget:maxSearches,plannedBrowserSearches:discoveryPlan.browserTasks.length,feedsLoaded,feedLinks,browserLinks,simplifyClicks,simplifyUsed,loginStage:{enabled:loginStage.enabled!==false,manualAcknowledgment:loginStage.enabled!==false,sitesOpened:loginStage.report?.siteCount||0,blockedSources:[...blockedSources],autoEnabledSources:loginStage.report?.autoEnabled||[],reportFile:loginStage.report?path.join(root,'data','prelogin-status.json'):null},discoverySources:discoveryPlan.sourceCount,browserSearchesBySource,applicationAttemptsBySource,candidatesBySource,...counts,skippedReasons,
     statusDefinitions:{confirmed:'Strong browser evidence plus independent applied status, not a Gmail receipt',pendingReceipt:'Success message observed, independent confirmation incomplete',unverified:'Submit was clicked; result cannot be established—do not retry automatically'},
     emailReceipts:'NOT connected to local Node.js process; independently review employer emails.',
     actualEmployerEmailConfirmations:0,
@@ -211,6 +255,6 @@ try {
     logPath,ledgerFile,evidenceDirectory:path.join(outboxDir,'verification')};
   fs.mkdirSync(outboxDir,{recursive:true});
   fs.writeFileSync(path.join(outboxDir,'last-run-summary.json'),JSON.stringify(summary,null,2));
-  console.log(`\n============= RUN RESULTS =============\nApplications opened: ${processed}\nBrowser-verified (not employer email): ${counts.confirmed}\nSubmitted, awaiting second proof: ${counts.pendingReceipt}\nSubmit attempted, outcome unknown: ${counts.unverified}\nReview/blockers: ${counts.needsReview+counts.blocked+counts.loginRequired}\nOther outcomes: ${counts.other+counts.failed+counts.errors+counts.invalidJob+counts.alreadyApplied}\nFeeds loaded: ${feedsLoaded}; feed candidates: ${feedLinks}\nBrowser searches: ${searches}; browser candidates: ${browserLinks}\nAccount sites enabled: ${(loginStage.report?.autoEnabled||[]).join(', ')||'(prelogin disabled)'}\nSites paused for sign-in/security challenge: ${[...blockedSources].join(', ')||'none'}\nSimplify button clicks: ${simplifyClicks}; jobs using Simplify: ${simplifyUsed} (not verified submissions)\nLog: ${logPath}\nProof: ${path.join(outboxDir,'verification')}\n=======================================`);
+  console.log(`\n============= RUN RESULTS =============\nApplications opened: ${processed}\nBrowser-verified (not employer email): ${counts.confirmed}\nSubmitted, awaiting second proof: ${counts.pendingReceipt}\nSubmit attempted, outcome unknown: ${counts.unverified}\nReview/blockers: ${counts.needsReview+counts.blocked+counts.loginRequired}\nTimed-out items: ${timeouts} (skipped)\nOther outcomes: ${counts.other+counts.failed+counts.errors+counts.invalidJob+counts.alreadyApplied}\nFeeds loaded: ${feedsLoaded}; feed candidates: ${feedLinks}\nBrowser searches: ${searches}; browser candidates: ${browserLinks}\nAccount sites enabled: ${(loginStage.report?.autoEnabled||[]).join(', ')||'(prelogin disabled)'}\nSites paused for sign-in/security challenge: ${[...blockedSources].join(', ')||'none'}\nSimplify button clicks: ${simplifyClicks}; jobs using Simplify: ${simplifyUsed} (not verified submissions)\nLog: ${logPath}\nProof: ${path.join(outboxDir,'verification')}\n=======================================`);
   if(!processed) console.warn('No applications were opened. Check sign-in, search source results, strict filters, or put direct links in config.jobUrls.');
 }
