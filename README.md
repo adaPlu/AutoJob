@@ -2,14 +2,14 @@
 
 AutoJob is a **Windows-first, Node.js/Playwright Core automation project** that helps a job seeker discover postings, open real application pages in a dedicated Chrome session, populate supported forms, and record evidence about each application attempt. It integrates with the **Simplify Copilot Chrome extension when its visible Autofill control is available**, falling back to its own form-filling logic.
 
-> **Release:** v1.5.2 (public-safe source edition)
+> **Release:** v1.5.3 (public-safe source edition)
 > **Status:** Source code for local use and testing; application sites change frequently. Automated form filling and simulated tests are **not proof** that a real employer received an application. No applicant résumé, passwords, browser sessions, or personal profile are included in this public repository.
 
 ## Features
 
 | Area | Capabilities | Limitations |
 |---|---|---|
-| Job search | Uses up to 500 configured browser searches over multiple job boards/ATS sources; rotates between sources | 500 is a *maximum planned search budget*, not 500 unique jobs; results depend on availability and site behavior |
+| Job search | Uses up to 100 configured browser searches over multiple job boards/ATS sources; rotates between sources | 100 is a *maximum planned search budget*, not 100 unique jobs; results depend on availability and site behavior |
 | Remote job feeds | Reads structured job postings from Jobicy and Remotive | Feeds may be unavailable, delayed or incomplete |
 | Matching | Remote-only filtering, title/keyword filtering, candidate deduplication | A title is not sufficient to establish job fit; inspect live postings |
 | Browser | Uses Google Chrome's debugging interface via Playwright; keeps a dedicated profile | Login, MFA, CAPTCHA and employer-specific security challenges require human interaction |
@@ -17,7 +17,8 @@ AutoJob is a **Windows-first, Node.js/Playwright Core automation project** that 
 | Form filling | Contact data, upload inputs, select/radio controls, supported custom dropdowns, multi-step forms, screening answers | Unrecognized required fields or meaningful legal consents should block submission for review |
 | Simplify Copilot | Attempts to use the extension's visible autofill button, then fills supported gaps | The extension is separate software, not an API; it must be installed and signed in within AutoJob's Chrome profile |
 | Application attempts | Configurable automated final submit (`autoSubmit`) and 200-attempt per-run cap | Attempt is **not** acceptance; a click alone is not a successful application |
-| Audit | CSV logs, duplicate-submission ledger, verification artifacts, run summaries, review-needed reports | Verify with employer receipts and application dashboards before claiming success |
+| Gmail receipt verification | Optional read-only Gmail OAuth; matches affirmative employer/ATS acknowledgements to each logged job using company, time, and role disambiguation | Requires separate local Gmail authorization; emails that are absent or ambiguous remain unconfirmed |
+| Audit | CSV logs, duplicate-submission ledger, verification artifacts, run summaries, review-needed reports | **Only uniquely matched email receipts count as successful submissions**; a browser confirmation remains separate |
 | Hang protection | 5-minute inactivity watchdog per application, search, or feed task; logs and skips stalled items | A possible in-flight submission remains uncertain; a frozen Chrome process may require manual restart |
 
 ## Requirements
@@ -28,6 +29,7 @@ AutoJob is a **Windows-first, Node.js/Playwright Core automation project** that 
 - An internet connection and your own accounts on the job sites you intend to use.
 - Your own up-to-date **PDF/DOC/DOCX résumé**.
 - Optional: **Simplify Copilot** extension, installed in AutoJob's dedicated Chrome profile.
+- Optional receipt verification: Google Cloud OAuth **Desktop app** credentials and the Gmail API enabled for your own Google accounts.
 - For publishing to GitHub: **Git for Windows** and **GitHub CLI (`gh`)**, signed in to your GitHub account.
 
 The built-in form filler is rules-based and runs locally; no hosted inference service is required.
@@ -41,12 +43,12 @@ The built-in form filler is rules-based and runs locally; no hosted inference se
    cd AutoJob
    ```
 
-   (This URL will become usable once the remote repository has been created and pushed.)
+   (Use the public `main` branch for the latest source.)
 
 2. Double-click **`EDIT_PROFILE.bat`**. On first use it creates `config.json` and `profile.json` from the included `.example.json` templates and opens them in Notepad.
 3. Fill out your own `profile.json`: name, email, phone, geographic location, contact links, work authorization/sponsorship answers, skills, and any specific `applicationAnswers` you can truthfully provide. **Never guess legal, eligibility, or demographic answers.**
 4. Put your résumé at **`resume.pdf`** beside `START_ALL.bat`, *or* change `resumePath` in `config.json` to the relative or absolute path of your document.
-5. Check `config.json`. The example enables remote filtering, a 500-search budget, a 200-attempt limit and `autoSubmit: true`. **Review answers and try dry-run mode before using automatic final submission.**
+5. Check `config.json`. The example enables remote filtering, a 100-search budget, a 200-attempt limit and `autoSubmit: true`. **Review answers and try dry-run mode before using automatic final submission.**
 6. Double-click **`START_ALL.bat`** to install the Playwright dependency if missing, check configuration, launch/reuse dedicated Chrome, open job sites for login, run searches/applications, and generate results.
 7. In the Chrome window, sign in as needed. In the terminal, type **`READY`** to continue or `CANCEL` to stop when asked.
 
@@ -98,7 +100,7 @@ Settings live in **private `config.json`**. Values from `config.example.json` ar
   "strictRemote": true,
   "autoSubmit": true,
   "requireResumeUpload": true,
-  "maxDiscoverySearchesPerRun": 500,
+  "maxDiscoverySearchesPerRun": 100,
   "maxJobsPerRun": 200,
   "itemInactivityTimeoutMs": 300000,
   "maxJobsPerSource": 12,
@@ -119,7 +121,27 @@ Settings live in **private `config.json`**. Values from `config.example.json` ar
 - `maxJobAttempts`: per-posting retry limit; uncertain prior submissions should not be blindly retried.
 - `itemInactivityTimeoutMs`: idle time before a job/form/search/feed is considered stalled; default is `300000` milliseconds (five minutes). A completed page/application milestone resets the timer. Do not set this too low for normal forms and slow sites.
 
-**Counter definitions matter:** `maxJobsPerRun=200` is a cap on *application attempts*, not 200 guaranteed completed submissions. `maxDiscoverySearchesPerRun=500` is a cap on *planned browser searches*, which might stop earlier if the application cap is reached.
+**Counter definitions matter:** `maxJobsPerRun=200` is a cap on *application attempts*, not 200 guaranteed completed submissions. `maxDiscoverySearchesPerRun=100` is a cap on *planned browser searches*, which might stop earlier if the application cap is reached.
+
+## Gmail receipt setup (optional, for email-verified submission counts)
+
+The GitHub repository does **not** carry anyone's Gmail credentials or tokens. The browser job-site logins and the account connected to a chat interface **cannot** authorize a standalone Windows Node.js application. Set up local OAuth once for each Gmail account you want AutoJob to inspect.
+
+1. Open the [Google Cloud Console](https://console.cloud.google.com/). Create or choose a project and **enable the Gmail API**.
+2. Under **Google Auth platform**, configure the OAuth consent screen (**Branding**, **Audience**, and **Data access**). For personal use choose **External** where appropriate, and add your own Gmail address(es) as **test users** while the app is in testing.
+3. In **Google Auth platform → Clients**, create an **OAuth client ID** of type **Desktop app**. Download its JSON configuration, rename it **`gmail-credentials.json`**, and place it in the AutoJob root folder (beside `START_ALL.bat`). **Never commit this file.**
+4. Double-click **`CONNECT_GMAIL.bat`** or run `npm run gmail:connect`. A browser opens Google's consent screen; choose the correct Gmail account, grant **read-only** access, and return to the program. Repeat once for each of your accounts if using more than one.
+5. Run the job automator normally. It automatically checks recent acknowledgement emails at the end of a live run. Use **`CHECK_GMAIL.bat`** or `npm run gmail:verify` later to catch receipts that arrive after the run. `VIEW_RESULTS.bat` displays the total unique **email-confirmed successes**.
+
+AutoJob only requests the `https://www.googleapis.com/auth/gmail.readonly` scope. It cannot send, delete, or modify mail. OAuth access and refresh tokens are stored locally under `data/gmail-tokens/`; `gmail-credentials.json`, `data/`, and mail evidence are excluded from Git. Gmail setup is optional: without it, a run completes, but its successful **email-confirmed count** is not verified. If Google's consent screen is in **Testing** status, its refresh tokens can expire after seven days; re-run `CONNECT_GMAIL.bat` when authorization stops working. Google may show an unverified-app warning for personal test clients. Review Google's [Gmail Node.js quickstart](https://developers.google.com/workspace/gmail/api/quickstart/nodejs) and [desktop OAuth documentation](https://developers.google.com/identity/protocols/oauth2/native-app).
+
+### Receipt matching and what counts as success
+
+- An attempted submission, a clicked Submit button, or even a browser confirmation screen **does not** increase the email-confirmed success count.
+- Gmail search looks for affirmative employer/ATS acknowledgement language (for example, *application received* or *thank you for applying*), with a sender address and a receipt date after the logged attempt.
+- The email must match the **company** recorded for an attempted job; if multiple jobs at the same employer could match, the email must identify a unique role. One receipt may confirm only **one** logged job. Job-board forwarding notices, promotional alerts, non-job applications, and messages before the attempt do not count.
+- A successful match adds `submitted-email-confirmed` to `data/application-log.csv` and records the Gmail message ID, sender, and receipt timestamp in the local ledger. Repeated runs are idempotent and do not double-count the same job.
+- Unmatched or ambiguous messages are not assumed to prove failure. Use the employer's dashboard or review the message manually; some employers never send confirmation emails. Gmail's readonly scope is **restricted** by Google, so public distribution to other users may require OAuth verification.
 
 ## Workflow and outcome verification
 
@@ -151,7 +173,11 @@ Edit private config/profile + supply résumé
                |
     Submit (only if enabled/safe)
                |
- Evidence + local logs + manual receipt review
+ Browser evidence + local submission ledger
+               |
+      Gmail receipt reconciliation
+               |
+       Email-confirmed success
 ```
 
 At the end of a run, inspect:
@@ -162,8 +188,9 @@ At the end of a run, inspect:
 - `outbox/last-run-summary.json`: per-site search and attempt counts and run outcomes.
 - `outbox/review-needed.csv`: items that need your attention.
 - `outbox/verification/`: captured browser evidence, where available.
+- `outbox/gmail-verification-summary.json`: Gmail check status, count of unique email-confirmed jobs and ambiguous messages. Gmail body text is not stored.
 
-**Evidence levels:** A browser-observed success message or applied status may indicate the form was submitted; a mere *Submit click* is not sufficient. **The program does not automatically read your Gmail or prove employer receipt**. Confirm through employer email receipts or the employer's applicant dashboard before recording an application as definitively received.
+**Evidence levels:** A browser-observed success message or applied status may indicate the form was submitted; a mere *Submit click* is not sufficient. When the optional read-only Gmail integration is authorized, AutoJob checks for employer/ATS acknowledgements at the end of a run, and `CHECK_GMAIL.bat` can repeat the check later. **Only `submitted-email-confirmed` is included in the successful-submission total.** Missing mail means unconfirmed, not failed; it can take time for an employer to send an acknowledgement. A browser confirmation is tracked separately.
 
 ## Troubleshooting
 
@@ -183,6 +210,7 @@ At the end of a run, inspect:
 ```text
 AutoJob/
 ├── START_ALL.bat, EDIT_PROFILE.bat, CHECK_SETUP.bat
+├── CONNECT_GMAIL.bat, CHECK_GMAIL.bat
 ├── START_CHROME.bat, PRELOGIN_JOB_SITES.bat, SETUP_SIMPLIFY.bat
 ├── RUN_AUTOMATOR.bat, VIEW_RESULTS.bat, REVIEW_BLOCKERS.bat
 ├── PUBLISH_TO_GITHUB.bat, PUSH_CHANGES.bat
@@ -228,6 +256,7 @@ This should normally remain at five minutes. Timeout is **not** proof that an ap
 | Browser/debugging | **Google Chrome**, **Chrome DevTools Protocol (CDP)** | Attaches automation to dedicated, persistent local Chrome profile (`127.0.0.1:9222`) |
 | Windows orchestration | **Batch/CMD (.bat)** | One-click launcher, profile editing, Chrome startup, login stage and result viewers |
 | External autofill | **Simplify Copilot Chrome extension** *(optional)* | Uses its visible supported autofill button when available, then falls back to built-in form logic |
+| Gmail confirmation | **Gmail REST API**, **Google OAuth 2.0 Desktop**, **PKCE**, read-only Gmail scope | Opt-in mail access, message searches, matching and confirmation log updates; tokens remain local |
 | Discovery APIs | **Jobicy remote jobs API**, **Remotive public remote jobs API** | Reads structured JSON postings; does not submit applications over these APIs |
 | Job-site pages | **LinkedIn, Indeed, Simplify, Greenhouse, Lever, Ashby, Workday**, and other sources in `config.example.json` | Browser-based searches or individual application navigation; no private API integration claimed |
 | HTTP & parsing | Built-in **Fetch API**, **URL**, **JSON**, HTML DOM and Playwright locators | Requests feeds, normalizes posting URLs and inspects form controls |
@@ -250,6 +279,8 @@ npm run plan        # Build discovery search plan; no browser required
 npm run dry-run     # Open forms without final submissions
 npm run report      # Generate human-readable last-run summary
 npm run review      # Print saved blockers and timed-out applications
+npm run gmail:connect # Authorize read-only Gmail access (optional)
+npm run gmail:verify  # Recheck receipt messages for logged applications
 ```
 
 For the design and abort/timeout behavior, see [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md). For safe operation and data handling, see [`docs/SECURITY.md`](docs/SECURITY.md).

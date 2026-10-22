@@ -106,9 +106,9 @@
   "profileFile": "profile.json",
   "resumePath": "resume.pdf",
   "coverLetterText": "",
-  "maxDiscoverySearchesPerRun": 500,
+  "maxDiscoverySearchesPerRun": 100,
   "jobUrls": [],
-  "_bundleVersion": "1.5.2",
+  "_bundleVersion": "1.5.3",
   "maxQueriesPerSource": 20,
   "maxPagesPerSearch": 2,
   "maxFeedPages": 2,
@@ -136,5 +136,9 @@
     "dismissInformationalNotices": true,
     "maxActions": 8
   },
-  "itemInactivityTimeoutMs": 300000
+  "itemInactivityTimeoutMs": 300000,
+  "gmailVerification": {
+    "enabled": true,
+    "maxMessagesPerAccount": 200
+  }
 }

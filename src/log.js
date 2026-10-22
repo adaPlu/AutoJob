@@ -66,7 +66,7 @@ export function appendLog(logPath, row) {
   fs.appendFileSync(logPath, HEADER.map(k=>esc(row[k])).join(',')+'\n');
 }
 
-export const PERMANENT_STATUSES = new Set(['submitted-confirmed','submitted-verified','already-applied','skipped-title','skipped-not-clearly-remote']);
+export const PERMANENT_STATUSES = new Set(['submitted-confirmed','submitted-verified','submitted-email-confirmed','already-applied','skipped-title','skipped-not-clearly-remote']);
 export const UNCERTAIN_STATUSES = new Set(['submitted-pending-receipt','submit-clicked-unverified','submission-unverified','submit-attempted']);
 
 export function applicationHistory(logPath) {

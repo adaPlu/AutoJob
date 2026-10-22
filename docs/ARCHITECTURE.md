@@ -49,4 +49,15 @@ The watchdog protects the run controller against unresolved promises; it **canno
 - `outbox/last-run-summary.json`, `outbox/review-needed.csv`, and `outbox/verification/` contain local reports and evidence.
 - Personal files, browser user-data and runtime logs are ignored by Git. The public repository must not contain applicant data.
 
-No employer inbox, Gmail account or third-party job database is consulted automatically for receipts. Employers control their own forms and site availability; screenshot/browser status is not equivalent to an employer acknowledgement.
+When enabled, Gmail receipt reconciliation uses a separately authorized local OAuth Desktop client with read-only scope. `src/gmail-client.js` handles OAuth and Gmail API requests, `src/gmail-verification.js` matches individual logged jobs and updates statuses. Screenshots/browser statuses do not count toward the email-confirmed success metric. Gmail does not receive form submission data, and missing email does not mean submission failure.
+
+## Gmail verification lifecycle (v1.5.3)
+
+1. OAuth Desktop PKCE authorization obtains per-account read-only refresh tokens in private `data/gmail-tokens/` files.
+2. The live run completes browser tasks and flushes application records. Gmail verification is then invoked with the existing watchdog timeout.
+3. The Gmail REST API returns message metadata and text to the local process for candidate receipts only. Raw mail bodies are not written to disk.
+4. Matching requires positive receipt language, plausible time, unique employer/job association and an actual submitted/uncertain job entry. A receipt cannot confirm more than one job.
+5. Successful matches append `submitted-email-confirmed` and update the ledger; results are deduplicated by job URL.
+6. `CHECK_GMAIL.bat` permits rechecking delayed receipts without a new job search or submission.
+
+No authenticated Gmail API credentials are part of the repository or packaged release.

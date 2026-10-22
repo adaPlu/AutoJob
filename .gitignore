@@ -29,3 +29,7 @@ coverage/
 .nyc_output/
 .DS_Store
 Thumbs.db
+
+# Google OAuth Desktop credentials and saved inbox authorizations
+gmail-credentials.json
+gmail-oauth*.json

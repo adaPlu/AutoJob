@@ -235,7 +235,7 @@ export async function processJob({context,job,config,profile,resumePath,outboxDi
     await clearNotices(basePage);
     const original=await pageText(basePage);
     const meta=await getMeta(basePage,original);
-    Object.assign(result,{company:meta.company,title:meta.title,work_mode:workMode(original)});
+    Object.assign(result,{company:String(job.company||meta.company||'').slice(0,120),title:meta.title,work_mode:workMode(original)});
     // Reject listing pages, generic headings and unrelated occupations BEFORE clicking Apply.
     if ((!isJobUrl(basePage.url(),job.source) && !await applicationFormRoot(basePage)) || !plausibleRoleTitle(meta.title,config)) {
       result.status='skipped-not-individual-job';result.blocker='Not a validated individual software/AI job posting';return result;

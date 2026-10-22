@@ -30,16 +30,16 @@ for (const receipt of receipts) {
   if (!previous || !evidence.ok) {
     console.warn(`Needs manual review: ${url||'(missing URL)'} — ${evidence.reason}`);rejected++;continue;
   }
-  if (previous.permanent) { console.log(`Already recorded as confirmed: ${url}`);continue; }
+  if (priorRows.some(r=>normalizeUrl(r.url,r.url)===k && r.status==='submitted-email-confirmed')) { console.log(`Email confirmation already recorded: ${url}`);continue; }
   const evidenceDir=path.join(root,'outbox','verification');
   fs.mkdirSync(evidenceDir,{recursive:true});
   const evidenceFile=`email-receipt-${Date.now()}-${accepted}.json`;
   fs.writeFileSync(path.join(evidenceDir,evidenceFile),JSON.stringify({url,from,subject,receivedAt,bodySnippet},null,2));
   appendLog(logPath,{timestamp:new Date().toISOString(),url,source:'email-receipt-reconciliation',
-    status:'submitted-confirmed',submission_verified:'yes',
+    status:'submitted-email-confirmed',submission_verified:'yes',
     verification_evidence:`Email: ${subject} from ${from} at ${receivedAt}`,
     artifact_path:path.join('verification',evidenceFile)});
-  updateLedger(ledgerPath(root),url,'submitted-confirmed',{evidenceFile});
+  updateLedger(ledgerPath(root),url,'submitted-email-confirmed',{evidenceFile});
   console.log(`Reconciled from supplied receipt: ${url}`);accepted++;
 }
 console.log(`Receipt reconciliation: ${accepted} confirmed, ${rejected} rejected/unmatched`);

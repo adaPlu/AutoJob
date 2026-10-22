@@ -21,3 +21,11 @@ The system must not bypass CAPTCHA, MFA, account security, required consent, or 
 ## Reporting a problem
 
 Avoid publishing screenshots or logs containing applicant or employer personal information. Prefer a minimal reproducible test with fictitious `example.test` contact data.
+
+## Gmail OAuth and confirmation privacy
+
+- The optional connector requests only the Gmail API `gmail.readonly` scope and cannot send or delete messages.
+- Keep `gmail-credentials.json` and everything under `data/gmail-tokens/` private. They are gitignored and **must never be committed** or attached to bug reports.
+- The local matcher processes receipt messages but only saves minimal message identifiers and matching evidence; full message bodies are not written to log files.
+- A Gmail receipt is strong evidence, not a guarantee that the employer accepted the application. Company/time/role mismatches remain unconfirmed.
+- Personal use with a testing OAuth project may require reauthorization as refresh tokens expire. Public multiuser apps requesting Gmail's restricted scope may need Google verification.

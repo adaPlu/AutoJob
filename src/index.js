@@ -11,10 +11,11 @@ import { runWithWatchdog, watchdogTimeoutMs, settleWithin } from './watchdog.js'
 import { loadJson, resolveFromRoot } from './profile.js';
 import { inspectConfiguration, requirePreflight } from './preflight.js';
 import { runPreLogin } from './prelogin.js';
+import { verifyGmailReceipts } from './gmail-verification.js';
 
 const here=path.dirname(fileURLToPath(import.meta.url));
 const root=path.resolve(here,'..');
-const BUNDLE_VERSION='1.5.2';
+const BUNDLE_VERSION='1.5.3';
 const flags=new Set(process.argv.slice(2).filter(x=>x.startsWith('--')));
 const dryRun=flags.has('--dry-run');
 const onlyPreflight=flags.has('--preflight');
@@ -247,14 +248,25 @@ try {
 } finally {
   await settleWithin(searchPage.close().catch(()=>{}),5000);
   await settleWithin(browser.close().catch(()=>{}),5000);
+  let gmailSummary={status:'disabled',totalEmailConfirmed:0,newlyEmailConfirmed:0};
+  if(config.gmailVerification?.enabled!==false && !dryRun){
+    try{
+      const check=await runWithWatchdog({label:'Gmail receipt check',timeoutMs:watchdogMs,
+        task:({signal})=>verifyGmailReceipts({root,signal,maxMessages:Math.max(1,Math.min(500,Number(config.gmailVerification?.maxMessagesPerAccount)||200))})});
+      gmailSummary=check.timedOut?{status:'check-timeout',errors:['Gmail check exceeded the five-minute timeout']}:
+        check.error?{status:'check-error',errors:[check.error.message||String(check.error)]}:check.value;
+    }catch(error){gmailSummary={status:'check-error',errors:[String(error.message||error)]};}
+  }
+  fs.mkdirSync(outboxDir,{recursive:true});
+  fs.writeFileSync(path.join(outboxDir,'gmail-verification-summary.json'),JSON.stringify(gmailSummary,null,2));
   const summary={watchdogTimeoutMs:watchdogMs,watchdogTimeoutCount:timeouts,createdAt:new Date().toISOString(),kind:dryRun?'dry-run':'live-attempt',jobsProcessed:processed,candidatesOpened:discovered,searches,searchBudget:maxSearches,plannedBrowserSearches:discoveryPlan.browserTasks.length,feedsLoaded,feedLinks,browserLinks,simplifyClicks,simplifyUsed,loginStage:{enabled:loginStage.enabled!==false,manualAcknowledgment:loginStage.enabled!==false,sitesOpened:loginStage.report?.siteCount||0,blockedSources:[...blockedSources],autoEnabledSources:loginStage.report?.autoEnabled||[],reportFile:loginStage.report?path.join(root,'data','prelogin-status.json'):null},discoverySources:discoveryPlan.sourceCount,browserSearchesBySource,applicationAttemptsBySource,candidatesBySource,...counts,skippedReasons,
-    statusDefinitions:{confirmed:'Strong browser evidence plus independent applied status, not a Gmail receipt',pendingReceipt:'Success message observed, independent confirmation incomplete',unverified:'Submit was clicked; result cannot be established—do not retry automatically'},
-    emailReceipts:'NOT connected to local Node.js process; independently review employer emails.',
-    actualEmployerEmailConfirmations:0,
-    actualEmployerEmailConfirmationsExplanation:'Not checked automatically; only count confirmed email receipts if reconciled manually.',
+    statusDefinitions:{confirmed:'Browser evidence only; NOT included in successful email-confirmed count',pendingReceipt:'Browser success observed; email receipt pending',unverified:'Submit was clicked; status uncertain—do not retry automatically',emailConfirmed:'Unique job and employer matched to an affirmative Gmail acknowledgement'},
+    gmailVerification:gmailSummary,
+    actualEmployerEmailConfirmations:gmailSummary.totalEmailConfirmed??null,
+    actualEmployerEmailConfirmationsExplanation:'Only unique positive Gmail-confirmed job receipts count as successful submissions; missing receipts remain unconfirmed.',
     logPath,ledgerFile,evidenceDirectory:path.join(outboxDir,'verification')};
   fs.mkdirSync(outboxDir,{recursive:true});
   fs.writeFileSync(path.join(outboxDir,'last-run-summary.json'),JSON.stringify(summary,null,2));
-  console.log(`\n============= RUN RESULTS =============\nApplications opened: ${processed}\nBrowser-verified (not employer email): ${counts.confirmed}\nSubmitted, awaiting second proof: ${counts.pendingReceipt}\nSubmit attempted, outcome unknown: ${counts.unverified}\nReview/blockers: ${counts.needsReview+counts.blocked+counts.loginRequired}\nTimed-out items: ${timeouts} (skipped)\nOther outcomes: ${counts.other+counts.failed+counts.errors+counts.invalidJob+counts.alreadyApplied}\nFeeds loaded: ${feedsLoaded}; feed candidates: ${feedLinks}\nBrowser searches: ${searches}; browser candidates: ${browserLinks}\nAccount sites enabled: ${(loginStage.report?.autoEnabled||[]).join(', ')||'(prelogin disabled)'}\nSites paused for sign-in/security challenge: ${[...blockedSources].join(', ')||'none'}\nSimplify button clicks: ${simplifyClicks}; jobs using Simplify: ${simplifyUsed} (not verified submissions)\nLog: ${logPath}\nProof: ${path.join(outboxDir,'verification')}\n=======================================`);
+  console.log(`\n============= RUN RESULTS =============\nApplications opened: ${processed}\nEmployer email-confirmed submissions (SUCCESS): ${gmailSummary.totalEmailConfirmed??'Not checked'}\nGmail verification: ${gmailSummary.status}\nBrowser-verified (not employer email): ${counts.confirmed}\nSubmitted, awaiting second proof: ${counts.pendingReceipt}\nSubmit attempted, outcome unknown: ${counts.unverified}\nReview/blockers: ${counts.needsReview+counts.blocked+counts.loginRequired}\nTimed-out items: ${timeouts} (skipped)\nOther outcomes: ${counts.other+counts.failed+counts.errors+counts.invalidJob+counts.alreadyApplied}\nFeeds loaded: ${feedsLoaded}; feed candidates: ${feedLinks}\nBrowser searches: ${searches}; browser candidates: ${browserLinks}\nAccount sites enabled: ${(loginStage.report?.autoEnabled||[]).join(', ')||'(prelogin disabled)'}\nSites paused for sign-in/security challenge: ${[...blockedSources].join(', ')||'none'}\nSimplify button clicks: ${simplifyClicks}; jobs using Simplify: ${simplifyUsed} (not verified submissions)\nLog: ${logPath}\nProof: ${path.join(outboxDir,'verification')}\n=======================================`);
   if(!processed) console.warn('No applications were opened. Check sign-in, search source results, strict filters, or put direct links in config.jobUrls.');
 }

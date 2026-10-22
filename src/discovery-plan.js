@@ -6,7 +6,7 @@ export function buildDiscoveryPlan(config) {
   const feeds=ordered.filter(x=>FEED_SOURCES.has(x)).map(source=>({type:'feed',source,query:''}));
   const browsers=ordered.filter(x=>!FEED_SOURCES.has(x));
   const queries=[...new Set((config.searchQueries||[]).filter(Boolean))];
-  const budget=Math.max(1,Math.min(500,Number(config.maxDiscoverySearchesPerRun)||500));
+  const budget=Math.max(1,Math.min(100,Number(config.maxDiscoverySearchesPerRun)||100));
   const perSource=Math.max(1,Math.min(30,Number(config.maxQueriesPerSource)||20));
   const rounds=Math.min(queries.length,perSource);
   const tasks=[];
