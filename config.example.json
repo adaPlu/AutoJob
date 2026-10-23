@@ -117,8 +117,10 @@
   "feedKeywordFilter": false,
   "simplifyCopilot": {
     "enabled": true,
+    "tryStartApplicationButton": true,
     "tryAutofillButton": true,
     "openPanelIfVisible": true,
+    "waitAfterStartMs": 1200,
     "waitAfterClickMs": 2800,
     "fallbackToBuiltIn": true
   },

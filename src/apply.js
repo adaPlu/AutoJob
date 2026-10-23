@@ -5,7 +5,7 @@ import { hashJob, updateLedger } from './submission-ledger.js';
 import { plausibleRoleTitle, postingRemoteStatus, classificationFromApplication } from './eligibility.js';
 import { isJobUrl, fitScore as computeFitScore } from './discover.js';
 import { findApplicationScope, fillApplicationScope, inspectApplicationResume, getRequiredBlockers, formFingerprint, getAction } from './forms.js';
-import { trySimplifyAutofill, simplifySettings } from './simplify-copilot.js';
+import { trySimplifyAutofill, trySimplifyStartApplicationOnPages, simplifySettings } from './simplify-copilot.js';
 import { handleSiteAcknowledgements } from './acknowledgements.js';
 import { CONFIRMATION_TEXT, FAILURE_TEXT, CHALLENGE_TEXT,
   matchEvidence, confirmationUrl, classifyEvidence } from './verification.js';
@@ -217,16 +217,29 @@ export async function processJob({context,job,config,profile,resumePath,outboxDi
     timestamp:new Date().toISOString(), company:'', title:'', url:job.url, source:job.source,
     work_mode:'unknown',fit_score:fitScore,status:'opened',simplify_autofill:'unknown',resume_used:'',
     resume_upload_verified:'no',cover_letter_used:'no',submission_verified:'no',verification_evidence:'',
-    stepsCompleted:0,fieldsFilled:0,requiredBlockers:[],simplifyClicks:0,simplifyStatus:'not-tested',
+    stepsCompleted:0,fieldsFilled:0,requiredBlockers:[],simplifyClicks:0,simplifyStartClicks:0,simplifyStatus:'not-tested',
     blocker:'',artifact_path:'',confirmation_url:'',independentApplied:false,submitButton:'',
     cookie_banners_accepted:0,site_notices_dismissed:0
   };
   let writeAhead=false, attemptedClick=false;
+  const simp=simplifySettings(config);
+  const simplifyStartedLocations=new WeakMap();
   const clearNotices=async page=>{
     checkActive();
     const handled=await handleSiteAcknowledgements(page,config);
     result.cookie_banners_accepted+=handled.cookieBannersAccepted;
     result.site_notices_dismissed+=handled.noticesDismissed;
+  };
+  const startSimplifyAcrossPages=async()=>{
+    if(!simp.enabled || !simp.tryStartApplicationButton)return;
+    const targets=pages.filter(page=>!page.isClosed() && simplifyStartedLocations.get(page)!==page.url());
+    if(!targets.length)return;
+    const attempt=await trySimplifyStartApplicationOnPages(targets,config);
+    for(const item of attempt.results) {
+      if(!item.clicked)continue;
+      result.simplifyStartClicks++;
+      simplifyStartedLocations.set(item.page,item.page.url());
+    }
   };
   try {
     checkActive();
@@ -253,7 +266,12 @@ export async function processJob({context,job,config,profile,resumePath,outboxDi
       '', '## Job text snapshot', original.slice(0,10000)].join('\n');
     fs.writeFileSync(path.join(outboxDir,`${slug(meta.company)}-${slug(meta.title)}-${hashJob(job.url)}.md`),brief);
 
-    let landing=basePage;
+    // Simplify can expose its own "Start Application" control on the job
+    // page or in a newly opened application window. Check every tracked
+    // window, but only click controls scoped to identifiable Simplify UI.
+    await startSimplifyAcrossPages();
+    let landing=activePage(pages,basePage);
+    await landing.waitForLoadState('domcontentloaded',{timeout:7000}).catch(()=>{});
     let form=await findApplicationScope(landing);
     // Job boards frequently open a second apply page/ATS before the actual form.
     // Follow up to three recognizable application CTAs; never click arbitrary Next buttons.
@@ -273,10 +291,10 @@ export async function processJob({context,job,config,profile,resumePath,outboxDi
     }
     if(!form){result.status='needs-review';result.blocker=`The employer application form was not detected after opening Apply (${landing.url()})`;return result;}
     let resumeEverVerified=false;
-    const simp=simplifySettings(config);
     const maxSteps=Math.max(1,Math.min(20,Number(config.maxApplicationSteps)||14));
     for (let step=0; step<maxSteps; step++) {
       checkActive();progress(`application-step-${step+1}`);
+      await startSimplifyAcrossPages();
       const page=activePage(pages,basePage);
       if (!page || page.isClosed()) {result.status='needs-review';result.blocker='Application window closed';return result;}
       await clearNotices(page);
@@ -288,7 +306,12 @@ export async function processJob({context,job,config,profile,resumePath,outboxDi
       const before=await getRequiredBlockers(form.root);
       // Ask the installed Simplify Copilot in-page panel to fill FIRST.
       // Its final submit remains under our form validation + evidence checks.
-      const simplify=await trySimplifyAutofill(page,config);
+      const alreadyStartedHere=simplifyStartedLocations.get(page)===page.url();
+      const simplify=await trySimplifyAutofill(page,config,{tryStartApplication:!alreadyStartedHere});
+      if(simplify.startApplicationClicked) {
+        result.simplifyStartClicks++;
+        simplifyStartedLocations.set(page,page.url());
+      }
       result.simplifyStatus=simplify.status;
       if (simplify.clicked) result.simplifyClicks++;
       if (simplify.status==='clicked-autofill') result.simplify_autofill='button-clicked';

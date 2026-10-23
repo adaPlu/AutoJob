@@ -2,7 +2,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-AutoJob is a **Windows-first, Node.js/Playwright Core automation project** that helps a job seeker discover postings, open real application pages in a dedicated Chrome session, populate supported forms, and record evidence about each application attempt. It integrates with the **Simplify Copilot Chrome extension when its visible Autofill control is available**, falling back to its own form-filling logic.
+AutoJob is a **Windows-first, Node.js/Playwright Core automation project** that helps a job seeker discover postings, open real application pages in a dedicated Chrome session, populate supported forms, and record evidence about each application attempt. It integrates with the **Simplify Copilot Chrome extension when its visible Start Application and Autofill controls are available**, falling back to its own form-filling logic.
 
 > **Release:** v1.5.4 (public-safe source edition)
 > **Status:** Source code for local use and testing; application sites change frequently. Automated form filling and simulated tests are **not proof** that a real employer received an application. No applicant résumé, passwords, browser sessions, or personal profile are included in this public repository.
@@ -17,7 +17,7 @@ AutoJob is a **Windows-first, Node.js/Playwright Core automation project** that 
 | Browser | Uses Google Chrome's debugging interface via Playwright; keeps a dedicated profile | Login, MFA, CAPTCHA and employer-specific security challenges require human interaction |
 | Site preparation | Opens account-based job sites before searching, checks likely session state, recognizes routine cookie banners | `AUTO-ENABLED` means a site may be searched, **not** that authentication is guaranteed |
 | Form filling | Contact data, upload inputs, select/radio controls, supported custom dropdowns, multi-step forms, screening answers | Unrecognized required fields or meaningful legal consents should block submission for review |
-| Simplify Copilot | Attempts to use the extension's visible autofill button, then fills supported gaps | The extension is separate software, not an API; it must be installed and signed in within AutoJob's Chrome profile |
+| Simplify Copilot | Presses the extension's visible Start Application control in each application window, then attempts its Autofill control and fills supported gaps | The extension is separate software, not an API; it must be installed and signed in within AutoJob's Chrome profile |
 | Application attempts | Configurable automated final submit (`autoSubmit`) and 200-attempt per-run cap | Attempt is **not** acceptance; a click alone is not a successful application |
 | Gmail receipt verification | Optional read-only Gmail OAuth; matches affirmative employer/ATS acknowledgements to each logged job using company, time, and role disambiguation | Requires separate local Gmail authorization; emails that are absent or ambiguous remain unconfirmed |
 | Audit | CSV logs, duplicate-submission ledger, verification artifacts, run summaries, review-needed reports | **Only uniquely matched email receipts count as successful submissions**; a browser confirmation remains separate |
@@ -94,7 +94,7 @@ The built-in form filler is rules-based and runs locally; no hosted inference se
 
 ### Simplify Copilot integration
 
-Run **`SETUP_SIMPLIFY.bat`** once to open the extension installation/help pages **in the dedicated Chrome profile**, and sign in to Simplify there. Enter your applicant profile and résumé in Simplify. The automator looks for the visible Simplify autofill control on supported forms and then attempts to fill unresolved supported fields. It does not use a Simplify private API and does not run Simplify's separate Autopilot service. If both tools try to advance forms, disable Simplify's *continuous multi-page autofill* option so AutoJob controls navigation.
+Run **`SETUP_SIMPLIFY.bat`** once to open the extension installation/help pages **in the dedicated Chrome profile**, and sign in to Simplify there. Enter your applicant profile and résumé in Simplify. The automator checks every tracked application window for Simplify's visible **Start Application** control, presses it once per page location, then looks for the visible Autofill control and fills unresolved supported fields. It does not use a Simplify private API and does not run Simplify's separate Autopilot service. If both tools try to advance forms, disable Simplify's *continuous multi-page autofill* option so AutoJob controls navigation.
 
 ### Alternative commands
 
@@ -154,7 +154,7 @@ Settings live in **private `config.json`**. Values from `config.example.json` ar
 - `jobUrls`: optional direct employer application URLs to try first (URLs should be supplied voluntarily and reviewed).
 - `preferredKeywords`/`skipTitleKeywords`: rules-based filtering and ranking inputs.
 - `preLogin`: controls account-site staging, timeouts, and whether unavailable accounts are skipped.
-- `simplifyCopilot`: enables use of the visible extension control, with native fallback.
+- `simplifyCopilot`: enables the visible extension controls, including `tryStartApplicationButton` and `tryAutofillButton`, with native fallback.
 - `siteAcknowledgements`: handles recognized cookie/info banners; this **does not** authorize employment contracts, background checks, attestations, or assessments.
 - `maxJobAttempts`: per-posting retry limit; uncertain prior submissions should not be blindly retried.
 - `itemInactivityTimeoutMs`: idle time before a job/form/search/feed is considered stalled; default is `300000` milliseconds (five minutes). A completed page/application milestone resets the timer. Do not set this too low for normal forms and slow sites.
@@ -234,7 +234,7 @@ At the end of a run, inspect:
 
 - **`Resume file missing` / `profile.email is missing`:** run `EDIT_PROFILE.bat`, complete the fields and copy your résumé to the path in `config.json`; rerun `CHECK_SETUP.bat`.
 - **`Cannot connect to Chrome`:** run `START_CHROME.bat`; keep its window open; ensure `chromeCdpUrl` matches local port 9222 and another process isn't using that port.
-- **Simplify doesn't autofill:** install and sign in within AutoJob's Chrome profile, not your regular Chrome profile; open an eligible application page and confirm its button appears.
+- **Simplify doesn't start or autofill:** install and sign in within AutoJob's Chrome profile, not your regular Chrome profile; open an eligible application page and confirm the Simplify panel exposes **Start Application** or **Autofill This Page**.
 - **`AUTO-ENABLED (sign-in unverified)`:** searching is permitted but login is *not guaranteed*. Sign in if the site still displays a login form.
 - **`HUMAN-VERIFICATION`:** complete any CAPTCHA/MFA manually in Chrome; AutoJob does not bypass these controls.
 - **Blank or incomplete application:** the employer may use an unsupported form; use `REVIEW_BLOCKERS.bat`, update truthful answers, and retry only if the ledger permits it.
@@ -293,7 +293,7 @@ This should normally remain at five minutes. Timeout is **not** proof that an ap
 | Browser automation | **Playwright Core** (`playwright-core`, version declared in `package.json`) | Navigates pages, finds controls, fills form fields, uploads résumé files, takes screenshots, detects dialogs |
 | Browser/debugging | **Google Chrome**, **Chrome DevTools Protocol (CDP)** | Attaches automation to dedicated, persistent local Chrome profile (`127.0.0.1:9222`) |
 | Windows orchestration | **Batch/CMD (.bat)** | One-click launcher, profile editing, Chrome startup, login stage and result viewers |
-| External autofill | **Simplify Copilot Chrome extension** *(optional)* | Uses its visible supported autofill button when available, then falls back to built-in form logic |
+| External autofill | **Simplify Copilot Chrome extension** *(optional)* | Uses visible Start Application and Autofill controls when available, then falls back to built-in form logic |
 | Gmail confirmation | **Gmail REST API**, **Google OAuth 2.0 Desktop**, **PKCE**, read-only Gmail scope | Opt-in mail access, message searches, matching and confirmation log updates; tokens remain local |
 | Discovery APIs | **Jobicy remote jobs API**, **Remotive public remote jobs API** | Reads structured JSON postings; does not submit applications over these APIs |
 | Job-site pages | **LinkedIn, Indeed, Simplify, Greenhouse, Lever, Ashby, Workday**, and other sources in `config.example.json` | Browser-based searches or individual application navigation; no private API integration claimed |
