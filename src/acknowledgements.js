@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 // Browser-visible consent banners and informational notices. No privileged APIs.
 // Only click inside a verified banner/dialog; NEVER accept employment terms,
 // attestations, legal disclosures, assessments, or verification challenges.

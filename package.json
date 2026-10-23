@@ -1,6 +1,6 @@
 {
   "name": "job-application-automator",
-  "version": "1.5.3",
+  "version": "1.5.4",
   "private": true,
   "type": "module",
   "scripts": {
@@ -24,5 +24,6 @@
   },
   "dependencies": {
     "playwright-core": "^1.55.0"
-  }
+  },
+  "license": "MIT"
 }

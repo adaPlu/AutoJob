@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 // Conservative evidence classification. A confirmation on one page is not independent
 // verification: only a second checked view or external receipt grants "confirmed".
 export const CONFIRMATION_TEXT = [

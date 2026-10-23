@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 // Balanced discovery prevents eight keyword searches at source #1 from exhausting
 // the search budget before source #20 is ever visited.
 import { FEED_SOURCES } from './feeds.js';

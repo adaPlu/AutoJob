@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 // Application form recognition, truthful autofill and verification helpers.
 // Unanswered screening questions, legal attestations, EEO and CAPTCHA are NOT guessed.
 import fs from 'node:fs';

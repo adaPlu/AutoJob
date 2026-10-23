@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 // UI-only integration with the Simplify Copilot browser extension.
 // Uses the public in-page "Autofill This Page" control when it is exposed to
 // browser accessibility selectors. Never accesses internal Simplify APIs.

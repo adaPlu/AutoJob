@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 // Fail closed on non-postings. Search queries are hints, not evidence of job fit.
 export const ROLE_PATTERN = /\b(software|back[ -]?end|front[ -]?end|full[ -]?stack|web|mobile|android|ios|java|python|react|typescript|machine learning|ml|ai|artificial intelligence|data|devops|cloud|platform|robotics|ros2?|embedded|firmware|application|developer|programmer|swe|sdet|qa automation)\b/i;
 export const JOB_TITLE_PATTERN = /\b(engineer|developer|programmer|architect|scientist|intern|specialist|analyst|technologist|tester|automation)\b/i;

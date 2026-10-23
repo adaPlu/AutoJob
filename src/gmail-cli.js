@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 import {fileURLToPath} from 'node:url';
 import fs from 'node:fs';
 import path from 'node:path';

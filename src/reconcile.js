@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 // Optional offline inbox receipt reconciliation. No Gmail credentials are stored or accessed.
 // User supplies a JSON manifest with exact job URLs and email evidence; no fuzzy matching.
 import fs from 'node:fs';

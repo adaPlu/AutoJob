@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 import { plausibleRoleTitle } from './eligibility.js';
 import { normalizeUrl } from './discover.js';
 

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 // Count successful applications only after a uniquely matched affirmative Gmail receipt.
 // Do not write full email bodies, OAuth credentials or other unrelated inbox content to logs.
 import fs from 'node:fs';

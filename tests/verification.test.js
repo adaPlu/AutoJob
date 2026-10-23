@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { confirmationUrl,matchEvidence,CONFIRMATION_TEXT,FAILURE_TEXT,classifyEvidence } from '../src/verification.js';

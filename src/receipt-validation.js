@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 import { normalizeUrl } from './discover.js';
 
 // Employer / ATS receipts are stronger than a board's "sent" notification.

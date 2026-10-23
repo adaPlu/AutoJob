@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 // Simulated job form with a mock visible Simplify Copilot button; no employer contacted.
 import test from 'node:test';
 import assert from 'node:assert/strict';

@@ -1,8 +1,10 @@
 # AutoJob — Job discovery and application assistant
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+
 AutoJob is a **Windows-first, Node.js/Playwright Core automation project** that helps a job seeker discover postings, open real application pages in a dedicated Chrome session, populate supported forms, and record evidence about each application attempt. It integrates with the **Simplify Copilot Chrome extension when its visible Autofill control is available**, falling back to its own form-filling logic.
 
-> **Release:** v1.5.3 (public-safe source edition)
+> **Release:** v1.5.4 (public-safe source edition)
 > **Status:** Source code for local use and testing; application sites change frequently. Automated form filling and simulated tests are **not proof** that a real employer received an application. No applicant résumé, passwords, browser sessions, or personal profile are included in this public repository.
 
 ## Features
@@ -20,6 +22,42 @@ AutoJob is a **Windows-first, Node.js/Playwright Core automation project** that 
 | Gmail receipt verification | Optional read-only Gmail OAuth; matches affirmative employer/ATS acknowledgements to each logged job using company, time, and role disambiguation | Requires separate local Gmail authorization; emails that are absent or ambiguous remain unconfirmed |
 | Audit | CSV logs, duplicate-submission ledger, verification artifacts, run summaries, review-needed reports | **Only uniquely matched email receipts count as successful submissions**; a browser confirmation remains separate |
 | Hang protection | 5-minute inactivity watchdog per application, search, or feed task; logs and skips stalled items | A possible in-flight submission remains uncertain; a frozen Chrome process may require manual restart |
+
+## Configured job discovery sources (27)
+
+AutoJob v1.5.4 includes the following **source IDs in `config.example.json`**, in configured order. These are configured *discovery sources*, **not 27 guaranteed working integrations**: some search via browser, several through site-restricted search results, and two through structured job feeds. An employer's final application page may be hosted on another ATS or need separate login, manual verification, or a form that cannot be submitted automatically.
+
+| # | Source | ID | Discovery method |
+|---:|---|---|---|
+| 1 | Jobicy | `jobicy` | Public remote-job JSON feed |
+| 2 | Remotive | `remotive` | Public remote-job JSON feed |
+| 3 | LinkedIn Jobs | `linkedin` | Browser job-board search |
+| 4 | Simplify Jobs | `simplify` | Browser job-board search |
+| 5 | Greenhouse | `greenhouse` | Site-restricted ATS search |
+| 6 | Lever | `lever` | Site-restricted ATS search |
+| 7 | Ashby | `ashby` | Site-restricted ATS search |
+| 8 | Direct company career pages | `companycareers` | Broad company careers search |
+| 9 | Indeed | `indeed` | Browser job-board search |
+| 10 | Y Combinator Jobs | `ycombinator` | Browser startup jobs search |
+| 11 | Wellfound | `wellfound` | Browser startup jobs search |
+| 12 | We Work Remotely | `weworkremotely` | Browser remote jobs search |
+| 13 | Remote OK | `remoteok` | Site-restricted remote jobs search |
+| 14 | Remote.co | `remoteco` | Site-restricted remote jobs search |
+| 15 | Dice | `dice` | Browser tech jobs search |
+| 16 | Built In | `builtin` | Browser tech jobs search |
+| 17 | Jobright | `jobright` | Site-restricted search |
+| 18 | Handshake | `handshake` | Interactive browser jobs search (login required) |
+| 19 | SmartRecruiters | `smartrecruiters` | Site-restricted ATS search |
+| 20 | Workday | `workday` | Site-restricted ATS search |
+| 21 | USAJOBS | `usajobs` | Browser federal jobs search |
+| 22 | iCIMS | `icims` | Site-restricted ATS search |
+| 23 | ZipRecruiter | `ziprecruiter` | Browser job-board search |
+| 24 | Glassdoor | `glassdoor` | Site-restricted search |
+| 25 | Monster | `monster` | Browser job-board search |
+| 26 | CareerBuilder | `careerbuilder` | Browser job-board search |
+| 27 | Welcome to the Jungle (formerly Otta) | `welcometothejungle` | Site-restricted jobs search |
+
+The maximum **100 browser searches** is a run budget, not a promise that every site is visited or that every posting is a unique, eligible job. Jobicy and Remotive are public feeds; source availability depends on each provider, account access, security checks, and changing page structure. The application-attempt cap remains **200**. For source-level details, see [SOURCES.md](SOURCES.md).
 
 ## Requirements
 
@@ -228,7 +266,7 @@ AutoJob/
 
 Site terms, anti-bot controls, and employer instructions still apply. Do not automate CAPTCHA bypass, make up qualifications, or accept legally meaningful terms on somebody else's behalf. High-volume submissions can be unreliable and may trigger account restrictions.
 
-This is an independently developed workflow; it is **not affiliated with or endorsed by Simplify, LinkedIn, Indeed, or other job boards**. No open-source license has been chosen yet, so please obtain the owner's permission before redistribution or reuse beyond what copyright law allows.
+This is an independently developed workflow; it is **not affiliated with or endorsed by Simplify, LinkedIn, Indeed, or other job boards**. This project is distributed under the **MIT License**. See [LICENSE](LICENSE).
 
 
 ## Five-minute inactivity watchdog (v1.5.2)
@@ -284,3 +322,7 @@ npm run gmail:verify  # Recheck receipt messages for logged applications
 ```
 
 For the design and abort/timeout behavior, see [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md). For safe operation and data handling, see [`docs/SECURITY.md`](docs/SECURITY.md).
+
+## License
+
+Copyright (c) 2026 adaPlu. This code and documentation are licensed under the [MIT License](LICENSE), permitting use, modification, distribution, and commercial reuse subject to the license terms.

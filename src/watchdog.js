@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 // Per-item inactivity watchdog. An item may exceed this total duration if
 // it keeps completing meaningful milestones; a stalled item cannot block the run.
 export class ItemTimedOutError extends Error {

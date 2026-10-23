@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 // Optional one-time migration: import old evidence without erasing current history.
 import fs from 'node:fs';
 import path from 'node:path';

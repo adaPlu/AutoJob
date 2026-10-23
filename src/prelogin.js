@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 // v1.5.1 - Browser-based login staging with explicit automatic source eligibility.
 // No credential collection, password injection, cookie export, CAPTCHA bypass or undocumented APIs.
 import fs from 'node:fs';

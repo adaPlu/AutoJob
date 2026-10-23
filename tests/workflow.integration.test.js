@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 // Opt-in browser test using a simulated ATS page; no external employer is contacted.
 import test from 'node:test';
 import assert from 'node:assert/strict';

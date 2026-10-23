@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 // Validate the Chrome remote debugging connection without PowerShell or external tools.
 const cdp = 'http://127.0.0.1:9222/json/version';
 const probeOnly = process.argv.includes('--probe');

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 import { chromium } from 'playwright-core';
 
 export async function connectChrome(cdpUrl) {

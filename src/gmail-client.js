@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 // Local Google OAuth 2.0 (installed desktop application) and read-only Gmail API.
 // Tokens live exclusively under data/ and are never uploaded with the public source.
 import fs from 'node:fs';

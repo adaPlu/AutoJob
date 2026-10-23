@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 // Offline diagnostic replay for CSV logs. No website, Chrome or live application touched.
 import fs from 'node:fs';
 import path from 'node:path';

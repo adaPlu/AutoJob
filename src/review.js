@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 // Export latest actionable blockers for manual answers and retry. No assumptions about submissions.
 import fs from 'node:fs';
 import path from 'node:path';

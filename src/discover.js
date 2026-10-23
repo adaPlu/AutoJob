@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 import { handleSiteAcknowledgements } from './acknowledgements.js';
 const googleSiteSearch = (site, q) =>
   `https://www.google.com/search?q=${encodeURIComponent(`site:${site} ${q}`)}`;

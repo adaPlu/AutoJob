@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 // Local report: never conflates opened listings, clicked buttons, and employer receipts.
 import fs from 'node:fs';
 import path from 'node:path';

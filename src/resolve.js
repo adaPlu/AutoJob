@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 // Explicit manual unlock only after the person verified the ATS did NOT receive the application.
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
