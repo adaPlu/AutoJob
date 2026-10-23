@@ -78,7 +78,7 @@ const logPath=path.join(root,'data','application-log.csv');
 const outboxDir=path.join(root,'outbox');
 const ledgerFile=ledgerPath(root);
 ensureLog(logPath);
-let processed=0, discovered=0, searches=0, feedsLoaded=0, feedLinks=0, browserLinks=0, simplifyClicks=0, simplifyUsed=0, timeouts=0;
+let processed=0, discovered=0, searches=0, feedsLoaded=0, feedLinks=0, browserLinks=0, simplifyClicks=0, simplifyStartClicks=0, simplifyUsed=0, timeouts=0;
 const skippedReasons={};
 const counts={confirmed:0,pendingReceipt:0,unverified:0,failed:0,blocked:0,readyNoSubmit:0,ready:0,needsReview:0,timedOut:0,errors:0,alreadyApplied:0,invalidJob:0,loginRequired:0,other:0};
 const recordSkip=r=>{skippedReasons[r]=(skippedReasons[r]||0)+1;};
@@ -136,7 +136,8 @@ async function attempt(job){
   }
   appendLog(logPath,result);
   simplifyClicks += Number(result.simplifyClicks || 0);
-  if (Number(result.simplifyClicks || 0)>0) simplifyUsed++;
+  simplifyStartClicks += Number(result.simplifyStartClicks || 0);
+  if (Number(result.simplifyClicks || 0)>0 || Number(result.simplifyStartClicks || 0)>0) simplifyUsed++;
   // Keep per-run dedup + uncertainty in sync without reparsing the CSV per job.
   if (['submitted-confirmed','already-applied'].includes(result.status)) history.set(url,{last:result.status,permanent:true});
   if (['submitted-pending-receipt','submit-clicked-unverified'].includes(result.status)) history.set(url,{last:result.status,uncertain:true});
@@ -260,7 +261,7 @@ try {
   }
   fs.mkdirSync(outboxDir,{recursive:true});
   fs.writeFileSync(path.join(outboxDir,'gmail-verification-summary.json'),JSON.stringify(gmailSummary,null,2));
-  const summary={watchdogTimeoutMs:watchdogMs,watchdogTimeoutCount:timeouts,createdAt:new Date().toISOString(),kind:dryRun?'dry-run':'live-attempt',jobsProcessed:processed,candidatesOpened:discovered,searches,searchBudget:maxSearches,plannedBrowserSearches:discoveryPlan.browserTasks.length,feedsLoaded,feedLinks,browserLinks,simplifyClicks,simplifyUsed,loginStage:{enabled:loginStage.enabled!==false,manualAcknowledgment:loginStage.enabled!==false,sitesOpened:loginStage.report?.siteCount||0,blockedSources:[...blockedSources],autoEnabledSources:loginStage.report?.autoEnabled||[],reportFile:loginStage.report?path.join(root,'data','prelogin-status.json'):null},discoverySources:discoveryPlan.sourceCount,browserSearchesBySource,applicationAttemptsBySource,candidatesBySource,...counts,skippedReasons,
+  const summary={watchdogTimeoutMs:watchdogMs,watchdogTimeoutCount:timeouts,createdAt:new Date().toISOString(),kind:dryRun?'dry-run':'live-attempt',jobsProcessed:processed,candidatesOpened:discovered,searches,searchBudget:maxSearches,plannedBrowserSearches:discoveryPlan.browserTasks.length,feedsLoaded,feedLinks,browserLinks,simplifyClicks,simplifyStartClicks,simplifyUsed,loginStage:{enabled:loginStage.enabled!==false,manualAcknowledgment:loginStage.enabled!==false,sitesOpened:loginStage.report?.siteCount||0,blockedSources:[...blockedSources],autoEnabledSources:loginStage.report?.autoEnabled||[],reportFile:loginStage.report?path.join(root,'data','prelogin-status.json'):null},discoverySources:discoveryPlan.sourceCount,browserSearchesBySource,applicationAttemptsBySource,candidatesBySource,...counts,skippedReasons,
     statusDefinitions:{confirmed:'Browser evidence only; NOT included in successful email-confirmed count',pendingReceipt:'Browser success observed; email receipt pending',unverified:'Submit was clicked; status uncertain—do not retry automatically',emailConfirmed:'Unique job and employer matched to an affirmative Gmail acknowledgement'},
     gmailVerification:gmailSummary,
     actualEmployerEmailConfirmations:gmailSummary.totalEmailConfirmed??null,
@@ -268,6 +269,6 @@ try {
     logPath,ledgerFile,evidenceDirectory:path.join(outboxDir,'verification')};
   fs.mkdirSync(outboxDir,{recursive:true});
   fs.writeFileSync(path.join(outboxDir,'last-run-summary.json'),JSON.stringify(summary,null,2));
-  console.log(`\n============= RUN RESULTS =============\nApplications opened: ${processed}\nEmployer email-confirmed submissions (SUCCESS): ${gmailSummary.totalEmailConfirmed??'Not checked'}\nGmail verification: ${gmailSummary.status}\nBrowser-verified (not employer email): ${counts.confirmed}\nSubmitted, awaiting second proof: ${counts.pendingReceipt}\nSubmit attempted, outcome unknown: ${counts.unverified}\nReview/blockers: ${counts.needsReview+counts.blocked+counts.loginRequired}\nTimed-out items: ${timeouts} (skipped)\nOther outcomes: ${counts.other+counts.failed+counts.errors+counts.invalidJob+counts.alreadyApplied}\nFeeds loaded: ${feedsLoaded}; feed candidates: ${feedLinks}\nBrowser searches: ${searches}; browser candidates: ${browserLinks}\nAccount sites enabled: ${(loginStage.report?.autoEnabled||[]).join(', ')||'(prelogin disabled)'}\nSites paused for sign-in/security challenge: ${[...blockedSources].join(', ')||'none'}\nSimplify button clicks: ${simplifyClicks}; jobs using Simplify: ${simplifyUsed} (not verified submissions)\nLog: ${logPath}\nProof: ${path.join(outboxDir,'verification')}\n=======================================`);
+  console.log(`\n============= RUN RESULTS =============\nApplications opened: ${processed}\nEmployer email-confirmed submissions (SUCCESS): ${gmailSummary.totalEmailConfirmed??'Not checked'}\nGmail verification: ${gmailSummary.status}\nBrowser-verified (not employer email): ${counts.confirmed}\nSubmitted, awaiting second proof: ${counts.pendingReceipt}\nSubmit attempted, outcome unknown: ${counts.unverified}\nReview/blockers: ${counts.needsReview+counts.blocked+counts.loginRequired}\nTimed-out items: ${timeouts} (skipped)\nOther outcomes: ${counts.other+counts.failed+counts.errors+counts.invalidJob+counts.alreadyApplied}\nFeeds loaded: ${feedsLoaded}; feed candidates: ${feedLinks}\nBrowser searches: ${searches}; browser candidates: ${browserLinks}\nAccount sites enabled: ${(loginStage.report?.autoEnabled||[]).join(', ')||'(prelogin disabled)'}\nSites paused for sign-in/security challenge: ${[...blockedSources].join(', ')||'none'}\nSimplify Start Application clicks: ${simplifyStartClicks}; autofill clicks: ${simplifyClicks}; jobs using Simplify: ${simplifyUsed} (not verified submissions)\nLog: ${logPath}\nProof: ${path.join(outboxDir,'verification')}\n=======================================`);
   if(!processed) console.warn('No applications were opened. Check sign-in, search source results, strict filters, or put direct links in config.jobUrls.');
 }
