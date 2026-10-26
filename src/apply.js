@@ -15,13 +15,32 @@ function includesAny(text, words=[]) { return words.some(w => String(text).toLow
 async function pageText(page) {
   return page && !page.isClosed() ? (await page.locator('body').innerText({timeout:4500}).catch(()=>'')) || '' : '';
 }
-async function getMeta(page, text='') {
+// ATS URLs carry a more reliable employer identity than unconstrained body
+// copy (which may contain misleading phrases such as "at Jobgether will
+// process your personal data..." from a privacy-policy notice).
+export function companyFromAtsUrl(rawUrl) {
+  try {
+    const url=new URL(rawUrl);
+    const hosts=new Set(['jobs.lever.co','jobs.ashbyhq.com','boards.greenhouse.io',
+      'job-boards.greenhouse.io','boards.eu.greenhouse.io',
+      'jobs.smartrecruiters.com','apply.workable.com']);
+    if(!hosts.has(url.hostname.toLowerCase()))return '';
+    const slug=decodeURIComponent(url.pathname.split('/').filter(Boolean)[0]||'');
+    if(!/^[a-z0-9][a-z0-9_-]{1,69}$/i.test(slug))return '';
+    return slug.replace(/[-_]+/g,' ').replace(/\b[a-z]/g,ch=>ch.toUpperCase());
+  }catch{return '';}
+}
+
+export async function getMeta(page, text='') {
   const titleTag = await page.title().catch(()=>'');
   const h1 = await page.locator('h1').first().innerText().catch(()=>'');
   const title = (h1 || titleTag.split('|')[0].trim() || 'Unknown role').slice(0,160);
-  const og = await page.locator('meta[property="og:site_name"]').getAttribute('content').catch(()=>null);
-  const match = text.match(/(?:at|company)\s+([A-Z][A-Za-z0-9&.,' -]{2,60})/);
-  return {title, company:(og || match?.[1] || '').trim().slice(0,120)};
+  const og = (await page.locator('meta[property="og:site_name"]').getAttribute('content').catch(()=>null) || '').trim();
+  // Some ATS pages use the generic vendor name in og:site_name. Prefer
+  // the organization account slug for those hosts instead.
+  const distinctOg = /^(?:lever|greenhouse|ashby|workable|smartrecruiters|job portal)$/i.test(og)?'':og;
+  const explicitCompany = text.match(/(?:^|\n)\s*(?:company|organization|employer)\s*:\s*([^\n]{2,80})/im)?.[1]?.trim() || '';
+  return {title, company:(distinctOg || companyFromAtsUrl(page.url()) || explicitCompany).slice(0,120)};
 }
 function workMode(text) {
   if (/\bremote\b/i.test(text)) return 'remote';
