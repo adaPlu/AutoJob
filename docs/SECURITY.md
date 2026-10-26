@@ -29,3 +29,9 @@ Avoid publishing screenshots or logs containing applicant or employer personal i
 - The local matcher processes receipt messages but only saves minimal message identifiers and matching evidence; full message bodies are not written to log files.
 - A Gmail receipt is strong evidence, not a guarantee that the employer accepted the application. Company/time/role mismatches remain unconfirmed.
 - Personal use with a testing OAuth project may require reauthorization as refresh tokens expire. Public multiuser apps requesting Gmail's restricted scope may need Google verification.
+
+## Public repository pre-push audit
+
+Run `npm run audit:public` before publishing. This scans the Git index for private file paths and common email, credential, OAuth, and private-key signatures; it also checks the local applicant's name if a private `profile.json` is available. It prints file names and finding categories, **never matched secrets**. The project publish scripts run this audit and CI checks it on pushes and pull requests.
+
+Private local files are retained for normal operation and ignored by Git; the audit does not erase, edit, or upload them. This is an additional safeguard, not a guarantee against all accidental disclosures. For material already published in older commits, coordinate separate Git-history remediation; deleting it from the latest version does not eliminate historical access.

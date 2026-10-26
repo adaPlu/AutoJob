@@ -156,6 +156,7 @@ Settings live in **private `config.json`**. Values from `config.example.json` ar
 - `preLogin`: controls account-site staging, timeouts, and whether unavailable accounts are skipped.
 - `simplifyCopilot`: enables the visible extension controls, including `tryStartApplicationButton` and `tryAutofillButton`, with native fallback.
 - `siteAcknowledgements`: handles recognized cookie/info banners; this **does not** authorize employment contracts, background checks, attestations, or assessments.
+- Legal certification, arbitration, background-check consent, and similar confirmation checkboxes/radio buttons pause for personal review before advancing, even when an extension has already checked them. Complete those steps personally on the employer site.
 - `maxJobAttempts`: per-posting retry limit; uncertain prior submissions should not be blindly retried.
 - `itemInactivityTimeoutMs`: idle time before a job/form/search/feed is considered stalled; default is `300000` milliseconds (five minutes). A completed page/application milestone resets the timer. Do not set this too low for normal forms and slow sites.
 
@@ -177,7 +178,7 @@ AutoJob only requests the `https://www.googleapis.com/auth/gmail.readonly` scope
 
 - An attempted submission, a clicked Submit button, or even a browser confirmation screen **does not** increase the email-confirmed success count.
 - Gmail search looks for affirmative employer/ATS acknowledgement language (for example, *application received* or *thank you for applying*), with a sender address and a receipt date after the logged attempt.
-- The email must match the **company** recorded for an attempted job; if multiple jobs at the same employer could match, the email must identify a unique role. One receipt may confirm only **one** logged job. Job-board forwarding notices, promotional alerts, non-job applications, and messages before the attempt do not count.
+- An employer/ATS receipt must match the **company and the specific job title** recorded after a submission click. Generic company-only acknowledgements are flagged as ambiguous—even if the log contains just one role at that company. The pre-click write-ahead status `submit-attempted` is **not** evidence of a completed click. One receipt may confirm only **one** logged job. Job-board forwarding notices, promotional alerts, non-job applications, and messages before the attempt do not count.
 - A successful match adds `submitted-email-confirmed` to `data/application-log.csv` and records the Gmail message ID, sender, and receipt timestamp in the local ledger. Repeated runs are idempotent and do not double-count the same job.
 - Unmatched or ambiguous messages are not assumed to prove failure. Use the employer's dashboard or review the message manually; some employers never send confirmation emails. Gmail's readonly scope is **restricted** by Google, so public distribution to other users may require OAuth verification.
 
@@ -236,7 +237,7 @@ At the end of a run, inspect:
 - **`Cannot connect to Chrome`:** run `START_CHROME.bat`; keep its window open; ensure `chromeCdpUrl` matches local port 9222 and another process isn't using that port.
 - **Simplify doesn't start or autofill:** install and sign in within AutoJob's Chrome profile, not your regular Chrome profile; open an eligible application page and confirm the Simplify panel exposes **Start Application** or **Autofill This Page**.
 - **`AUTO-ENABLED (sign-in unverified)`:** searching is permitted but login is *not guaranteed*. Sign in if the site still displays a login form.
-- **`HUMAN-VERIFICATION`:** complete any CAPTCHA/MFA manually in Chrome; AutoJob does not bypass these controls.
+- **`HUMAN-VERIFICATION`:** complete any CAPTCHA/MFA manually in Chrome; AutoJob does not bypass these controls. Sign-in, human-verification, and detected legal-attestation blockers leave the corresponding application tab open for your review. AutoJob does **not** resume those tabs or count a manual completion as a submission automatically; verify it on the employer dashboard or with a receipt.
 - **Blank or incomplete application:** the employer may use an unsupported form; use `REVIEW_BLOCKERS.bat`, update truthful answers, and retry only if the ledger permits it.
 - **`timed-out` or `WATCHDOG` message:** AutoJob waited five minutes without a completed progress milestone, closed the stalled item, and continued. Check `outbox/last-run-summary.json`, `data/application-log.csv`, and `outbox/review-needed.csv`. For possible submissions, verify employer receipt **before** any retry.
 - **No completed applications:** check per-site candidate and attempt counts in `VIEW_RESULTS.bat`; the run can discover zero valid postings, encounter site blocks, or stop before submitting.

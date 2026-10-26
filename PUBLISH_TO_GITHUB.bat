@@ -28,16 +28,21 @@ if /i not "!GHLOGIN!"=="adaPlu" (
 gh auth setup-git >nul 2>nul
 if not exist "README.md" (echo ERROR: README.md missing. & goto :failed)
 if not exist ".gitignore" (echo ERROR: .gitignore missing. & goto :failed)
-if not exist ".git" (
-  git init
-  if errorlevel 1 goto :failed
+if exist ".git" (
+  echo ERROR: This repository is already initialized. Use PUSH_CHANGES.bat instead to preserve your current branch.
+  goto :failed
 )
+git init
+if errorlevel 1 goto :failed
 git branch -M main
 if errorlevel 1 goto :failed
 rem Use this account's GitHub no-reply address locally: real applicant email need not appear in commits.
 git config user.name "adaPlu"
 git config user.email "70963681+adaPlu@users.noreply.github.com"
 git add -A
+if errorlevel 1 goto :failed
+where node >nul 2>nul || (echo Install Node.js to run the privacy audit & goto :failed)
+node scripts\audit-public.js
 if errorlevel 1 goto :failed
 rem Stop if any private files slipped through .gitignore.
 for /f "usebackq delims=" %%F in (`git diff --cached --name-only`) do (

@@ -33,3 +33,12 @@ Thumbs.db
 # Google OAuth Desktop credentials and saved inbox authorizations
 gmail-credentials.json
 gmail-oauth*.json
+
+# Private application history, backups and downloaded OAuth client files
+client_secret_*.json
+**/application-log*.csv
+**/submit-ledger*.json
+**/gmail-tokens/
+*.zip
+*.bak
+*.backup

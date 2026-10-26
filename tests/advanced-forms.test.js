@@ -97,7 +97,7 @@ test('required legal agreement cannot be silently accepted and no submit click h
       const result=await processJob({context:ctx,job:{url:'https://careers.example.invalid/jobs/junior-software-engineer',source:'companycareers'},
         config,profile,resumePath,outboxDir:path.join(tmp,'out'),fitScore:0,ledgerFile:path.join(tmp,'ledger.json')});
       assert.equal(result.status,'needs-review',JSON.stringify(result));
-      assert.match(result.blocker,/agreement\/checkbox/i);
+      assert.match(result.blocker,/agreement\/checkbox|legal acknowledgement/i);
       assert.equal(result.submitButton,'');
     }finally{await browser?.close();fs.rmSync(tmp,{recursive:true,force:true});}
   });

@@ -16,7 +16,7 @@ import { verifyGmailReceipts } from './gmail-verification.js';
 
 const here=path.dirname(fileURLToPath(import.meta.url));
 const root=path.resolve(here,'..');
-const BUNDLE_VERSION='1.5.3';
+const BUNDLE_VERSION=JSON.parse(fs.readFileSync(path.join(root,'package.json'),'utf8')).version;
 const flags=new Set(process.argv.slice(2).filter(x=>x.startsWith('--')));
 const dryRun=flags.has('--dry-run');
 const onlyPreflight=flags.has('--preflight');

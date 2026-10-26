@@ -4,7 +4,7 @@ import path from 'node:path';
 import { hashJob, updateLedger } from './submission-ledger.js';
 import { plausibleRoleTitle, postingRemoteStatus, classificationFromApplication } from './eligibility.js';
 import { isJobUrl, fitScore as computeFitScore } from './discover.js';
-import { findApplicationScope, fillApplicationScope, inspectApplicationResume, getRequiredBlockers, formFingerprint, getAction } from './forms.js';
+import { findApplicationScope, fillApplicationScope, inspectApplicationResume, getRequiredBlockers, getLegalConsentBlockers, formFingerprint, getAction } from './forms.js';
 import { trySimplifyAutofill, trySimplifyStartApplicationOnPages, simplifySettings } from './simplify-copilot.js';
 import { handleSiteAcknowledgements } from './acknowledgements.js';
 import { CONFIRMATION_TEXT, FAILURE_TEXT, CHALLENGE_TEXT,
@@ -15,13 +15,32 @@ function includesAny(text, words=[]) { return words.some(w => String(text).toLow
 async function pageText(page) {
   return page && !page.isClosed() ? (await page.locator('body').innerText({timeout:4500}).catch(()=>'')) || '' : '';
 }
-async function getMeta(page, text='') {
+// ATS URLs carry a more reliable employer identity than unconstrained body
+// copy (which may contain misleading phrases such as "at Jobgether will
+// process your personal data..." from a privacy-policy notice).
+export function companyFromAtsUrl(rawUrl) {
+  try {
+    const url=new URL(rawUrl);
+    const hosts=new Set(['jobs.lever.co','jobs.ashbyhq.com','boards.greenhouse.io',
+      'job-boards.greenhouse.io','boards.eu.greenhouse.io',
+      'jobs.smartrecruiters.com','apply.workable.com']);
+    if(!hosts.has(url.hostname.toLowerCase()))return '';
+    const slug=decodeURIComponent(url.pathname.split('/').filter(Boolean)[0]||'');
+    if(!/^[a-z0-9][a-z0-9_-]{1,69}$/i.test(slug))return '';
+    return slug.replace(/[-_]+/g,' ').replace(/\b[a-z]/g,ch=>ch.toUpperCase());
+  }catch{return '';}
+}
+
+export async function getMeta(page, text='') {
   const titleTag = await page.title().catch(()=>'');
   const h1 = await page.locator('h1').first().innerText().catch(()=>'');
   const title = (h1 || titleTag.split('|')[0].trim() || 'Unknown role').slice(0,160);
-  const og = await page.locator('meta[property="og:site_name"]').getAttribute('content').catch(()=>null);
-  const match = text.match(/(?:at|company)\s+([A-Z][A-Za-z0-9&.,' -]{2,60})/);
-  return {title, company:(og || match?.[1] || '').trim().slice(0,120)};
+  const og = (await page.locator('meta[property="og:site_name"]').getAttribute('content').catch(()=>null) || '').trim();
+  // Some ATS pages use the generic vendor name in og:site_name. Prefer
+  // the organization account slug for those hosts instead.
+  const distinctOg = /^(?:lever|greenhouse|ashby|workable|smartrecruiters|job portal)$/i.test(og)?'':og;
+  const explicitCompany = text.match(/(?:^|\n)\s*(?:company|organization|employer)\s*:\s*([^\n]{2,80})/im)?.[1]?.trim() || '';
+  return {title, company:(distinctOg || companyFromAtsUrl(page.url()) || explicitCompany).slice(0,120)};
 }
 function workMode(text) {
   if (/\bremote\b/i.test(text)) return 'remote';
@@ -353,6 +372,14 @@ export async function processJob({context,job,config,profile,resumePath,outboxDi
       // Never equate a visible button click with successful field completion.
       // The next phase validates required fields and the resume upload.
 
+      // Simplify or the site itself may pre-check an attestation. A checked
+      // box is not authorization to make a legally meaningful declaration.
+      const legalConsents=await getLegalConsentBlockers(form.root);
+      if (legalConsents.length) {
+        result.status='needs-review';
+        result.blocker=`Legal acknowledgement needs your review before advancing: ${legalConsents.join('; ')}`;
+        return result;
+      }
       if (blockers.length) {result.status='needs-review';result.blocker=`Required fields need truthful answers: ${blockers.join('; ')}`;return result;}
 
       const submit=await getAction(form.root,SUBMIT_PATTERNS);
@@ -481,6 +508,16 @@ export async function processJob({context,job,config,profile,resumePath,outboxDi
       }
     }
     context.off('page',onNewPage);
-    for (const page of pages.slice().reverse()) await page.close().catch(()=>{});
+    // Keep human-only steps available in the dedicated Chrome profile.
+    // Do not auto-resume/submit after MFA, CAPTCHA, or legal confirmation.
+    const leaveForHuman=!signal?.aborted && (
+      ['blocked','authentication-required'].includes(result.status) ||
+      /^Legal acknowledgement needs your review/.test(result.blocker)
+    );
+    if(leaveForHuman){
+      result.blocker=[result.blocker,'Application tab left open for manual completion; AutoJob did not submit it.'].filter(Boolean).join(' ');
+    } else {
+      for (const page of pages.slice().reverse()) await page.close().catch(()=>{});
+    }
   }
 }
