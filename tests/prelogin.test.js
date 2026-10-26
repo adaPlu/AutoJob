@@ -74,3 +74,21 @@ test('unknown sign-in is auto-enabled after READY, while actual login and CAPTCH
  assert.equal(stage.report.sites.find(x=>x.source==='dice').autoSearchEnabled,false);
  fs.rmSync(root,{recursive:true,force:true});
 });
+
+test('pending login tabs may be released on Chrome resource failure without touching other tabs',async()=>{
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'job-login-resource-test-'));
+ const state={url:'https://www.linkedin.com/feed/',signals:{signOutVisible:true},closed:false};
+ try{
+   const stage=await runPreLogin({
+     context:contextWithStates([state]),
+     root,
+     config:{sources:['linkedin'],preLogin:{closeLoginTabs:false}},
+     ask:async()=> 'READY',logger:{log:()=>{},warn:()=>{}}
+   });
+   assert.equal(state.closed,false,'user requested to keep login tabs open initially');
+   assert.equal(typeof stage.releaseLoginTabs,'function');
+   assert.equal(await stage.releaseLoginTabs(),1);
+   assert.equal(state.closed,true);
+   assert.equal(await stage.releaseLoginTabs(),0,'resource recovery must be idempotent');
+ }finally{fs.rmSync(root,{recursive:true,force:true});}
+});
