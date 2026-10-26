@@ -2,6 +2,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { SOURCE_DEFS } from './discover.js';
+import { FEED_SOURCES } from './feeds.js';
 import { plausibleRoleTitle } from './eligibility.js';
 
 export function inspectConfiguration(config,profile,resumePath,{dryRun=false}={}) {
@@ -16,6 +17,9 @@ export function inspectConfiguration(config,profile,resumePath,{dryRun=false}={}
   if(!Array.isArray(config.searchQueries)||!config.searchQueries.length) errors.push('No searchQueries configured');
   if(!Array.isArray(config.sources)||!config.sources.length) errors.push('No sources configured');
   for(const s of config.sources||[]) if(!SOURCE_DEFS[s]) warnings.push(`Unsupported discovery source ${s}`);
+  const browserSources=[...new Set((config.sources||[]).filter(s=>SOURCE_DEFS[s]&&!FEED_SOURCES.has(s)))];
+  const searchBudget=Math.max(1,Math.min(100,Number(config.maxDiscoverySearchesPerRun)||100));
+  if(browserSources.length>searchBudget)warnings.push(`Discovery budget ${searchBudget} cannot cover all ${browserSources.length} browser sources even once; increase maxDiscoverySearchesPerRun.`);
   if(config.simplifyCopilot?.enabled === true) warnings.push('Simplify Copilot requires an installed, signed-in extension in the dedicated Chrome profile; preflight cannot verify browser extension installation.');
   if(config.maxJobsPerRun>20) warnings.push('High-volume run requested: watch first applications and review receipts before relying on aggregate counts.');
   if((config.maxJobAttempts||0)>3) warnings.push('High retry count: cap retries and review uncertain outcomes.');

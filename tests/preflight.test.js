@@ -16,3 +16,11 @@ test('employer acknowledgements but not board forwarding qualify when exact URL 
  assert.equal(validateReceipt({...receipt,url:'https://jobs.example.com/careers/job/999'},rows).ok,false);
  assert.equal(validateReceipt({...receipt,subject:'Loan offer',bodySnippet:'Thanks for applying for a personal loan'},rows).ok,false);
 });
+
+test('preflight warns when the browser search budget cannot reach every enabled source',()=>{
+  const cfg={...conf,autoSubmit:true,sources:['linkedin','simplify','greenhouse','lever','ashby','indeed','jobicy'],maxDiscoverySearchesPerRun:4};
+  const result=inspectConfiguration(cfg,profile,'');
+  assert.match(result.warnings.join(';'),/cannot cover all 6 browser sources/);
+  const larger=inspectConfiguration({...cfg,maxDiscoverySearchesPerRun:12},profile,'');
+  assert.doesNotMatch(larger.warnings.join(';'),/cannot cover/);
+});

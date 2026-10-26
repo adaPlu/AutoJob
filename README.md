@@ -327,3 +327,11 @@ For the design and abort/timeout behavior, see [`docs/ARCHITECTURE.md`](docs/ARC
 ## License
 
 Copyright (c) 2026 adaPlu. This code and documentation are licensed under the [MIT License](LICENSE), permitting use, modification, distribution, and commercial reuse subject to the license terms.
+
+### Complex screening questions and wider search coverage
+
+AutoJob never invents screening answers. For radio groups and industry/experience multi-select checkboxes, it only selects an exact displayed option when `profile.json` contains an **explicit exact question-to-answer mapping** in `applicationAnswers`. For multi-select questions, provide an array of **verified** option labels (or a semicolon-separated string); for single-select questions, provide one exact option label. Protected-class questions, legal attestations and required consent remain for human review even if a saved answer exists. Unknown questions stop submission rather than being guessed.
+
+When a form has unanswered screening controls, AutoJob saves a private question-and-options report under `outbox/review-questions/`; this folder is ignored by Git and must not be uploaded to GitHub. Copy only personally verified facts into the private `profile.json` and rerun after resolving the questions. The program does not silently mark unanswered questions as complete.
+
+For wider discovery, set `maxDiscoverySearchesPerRun` to at least the number of browser-based sources (plus additional rounds as desired), and set `maxQueriesPerSource` above 1 to search each source more than once. `maxJobsPerSource` limits postings inspected on each site; `maxPostingsInspectedPerRun` independently caps all inspected postings. The final application limit `maxJobsPerRun` still counts only applications that begin a workflow, not rejected postings.

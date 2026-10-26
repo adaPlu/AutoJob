@@ -3,6 +3,7 @@
 // Unanswered screening questions, legal attestations, EEO and CAPTCHA are NOT guessed.
 import fs from 'node:fs';
 import path from 'node:path';
+import { fillExplicitScreeningChoices } from './screening-questions.js';
 
 const compact = s => String(s ?? '').replace(/\s+/g, ' ').trim();
 const norm = s => compact(s).toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
@@ -73,7 +74,7 @@ export function answerForQuestion(description, type, profile={}, config={}) {
   if (!text || SENSITIVE.test(text)) return '';
   const userAnswers = profile.applicationAnswers || {};
   for (const [prompt, answer] of Object.entries(userAnswers)) {
-    if (norm(prompt).length >= 8 && norm(text).includes(norm(prompt)) && answer != null && String(answer).trim()) return String(answer);
+    if (norm(prompt).length >= 8 && norm(text).includes(norm(prompt)) && answer != null && !Array.isArray(answer) && String(answer).trim()) return String(answer);
   }
   if (/\b(?:now|future|ever|require|need)\b.*\b(?:visa\s*)?sponsor(?:ship)?\b|\bsponsor(?:ship)?\b.*\b(?:now|future|need|require)\b/i.test(text)) return /^(no|false)$/i.test(String(profile.requiresSponsorship || '')) ? 'No' : '';
   if (/\b(?:legally )?authorized\b.*\bwork\b.*\b(?:us|u s|united states)\b|\bwork authorization\b.*\b(?:us|u s|united states)\b|\blegally eligible to work\b.*\b(?:us|u s|united states)\b/i.test(text)) return /^yes\b/i.test(profile.workAuthorization || '') ? 'Yes' : '';
@@ -92,7 +93,7 @@ async function detailsOf(el) {
   return el.evaluate(e=>{
     const named=id=>e.ownerDocument.getElementById(id)?.textContent||'';
     const parent=e.closest('fieldset,[role="group"],[role="radiogroup"],.form-group,.field,.field-container,.application-question,[data-automation-id="formField"]');
-    const legend=parent?.querySelector('legend,[class*="question"],[data-automation-id*="label"],label')?.textContent || '';
+    const legend=parent?.querySelector('legend,.application-label,[class*="question-label"],[data-automation-id*="label"],h2,h3,h4,label')?.textContent || '';
     const labels=[...(e.labels||[])].map(x=>x.textContent).join(' ');
     const aria=(e.getAttribute('aria-labelledby')||'').split(/\s+/).map(named).join(' ');
     const descriptions=(e.getAttribute('aria-describedby')||'').split(/\s+/).map(named).join(' ');
@@ -166,7 +167,7 @@ async function fillChoices(root, profile, config) {
     if(!await radio.isVisible().catch(()=>false)) continue;
     const group=await radio.evaluate(e=>{
       const container=e.closest('fieldset,[role="radiogroup"],.application-question,.form-group')||e.parentElement?.parentElement;
-      return {key:e.name||e.id,description:[container?.querySelector('legend,[class*="question"],label')?.textContent,container?.getAttribute('aria-label'),e.name].filter(Boolean).join(' ')};
+      return {key:e.name||e.id,description:[container?.querySelector('legend,.application-label,[class*="question-label"],h2,h3,h4,label')?.textContent,container?.getAttribute('aria-label'),e.name].filter(Boolean).join(' ')};
     }).catch(()=>null);
     if(!group || seen.has(group.key)) continue;
     seen.add(group.key);
@@ -238,6 +239,9 @@ export async function fillApplicationScope({root,profile,config,resumePath}) {
     const value=answerForQuestion(info.desc,'select',profile,config);
     if(value && await selectSemantic(el,value)) fills++;
   }
+  // Only select group answers explicitly supplied for this exact question.
+  // No guessing employer size, industry, tenure, referrals or consent.
+  fills+=await fillExplicitScreeningChoices(root,profile.applicationAnswers||{});
   fills+=await fillChoices(root,profile,config);
   // React/ARIA dropdowns seen on Workday and custom ATS forms.
   const combos=root.locator('[role="combobox"]:not(select),button[aria-haspopup="listbox"]:not([role="combobox"])');
@@ -299,14 +303,15 @@ export async function getRequiredBlockers(root) {
     const item=await el.evaluate(e=>({tag:e.tagName.toLowerCase(),type:(e.type||'').toLowerCase(),role:e.getAttribute('role')||'',name:e.name||'',value:e.value||'',checked:!!e.checked,
       valid:e.checkValidity?.()??true,validationMessage:e.validationMessage||'',
       label:[...(e.labels||[])].map(x=>x.textContent.trim()).join(' ')||e.getAttribute('aria-label')||e.name||e.id||'required field',
-      files:e.files?.length||0,selected:e.getAttribute('aria-selected')})).catch(()=>null);
+      files:e.files?.length||0,selected:e.getAttribute('aria-selected'),
+      groupQuestion:(e.closest('fieldset,.application-question,[role="group"],.form-group')?.querySelector('legend,.application-label,.question-title,.question-label')?.textContent||'').replace(/\s+/g,' ').trim().slice(0,150)})).catch(()=>null);
     if(!item || ['hidden','submit','button'].includes(item.type) || ['radiogroup','combobox'].includes(item.role)) continue;
     if(item.type==='radio') {
       if(seenRadio.has(item.name)) continue;
       seenRadio.add(item.name);
       const checked=await root.locator('input[type="radio"]').evaluateAll((els,name)=>els.some(x=>x.name===name && x.checked),item.name).catch(()=>false);
-      if(!checked) missing.push(`Radio: ${item.label}`);
-    } else if(item.type==='checkbox' && !item.checked) missing.push(`Agreement/checkbox: ${item.label}`);
+      if(!checked) missing.push(`Radio: ${item.groupQuestion||item.label}`);
+    } else if(item.type==='checkbox' && !item.checked) missing.push(item.groupQuestion?`Unanswered checkbox group: ${item.groupQuestion}`:`Agreement/checkbox: ${item.label}`);
     else if(item.type==='file' && !item.files) missing.push(`Upload: ${item.label}`);
     else if(item.type!=='checkbox' && item.type!=='radio' && (!compact(item.value)||!item.valid)) missing.push(`${item.label}${item.validationMessage?`: ${item.validationMessage}`:''}`);
   }

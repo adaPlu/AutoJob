@@ -7,6 +7,7 @@ import { isJobUrl, fitScore as computeFitScore } from './discover.js';
 import { findApplicationScope, fillApplicationScope, inspectApplicationResume, getRequiredBlockers, getLegalConsentBlockers, formFingerprint, getAction } from './forms.js';
 import { trySimplifyAutofill, trySimplifyStartApplicationOnPages, simplifySettings } from './simplify-copilot.js';
 import { handleSiteAcknowledgements } from './acknowledgements.js';
+import { collectScreeningReview } from './screening-questions.js';
 import { CONFIRMATION_TEXT, FAILURE_TEXT, CHALLENGE_TEXT,
   matchEvidence, confirmationUrl, classifyEvidence } from './verification.js';
 
@@ -238,7 +239,7 @@ export async function processJob({context,job,config,profile,resumePath,outboxDi
     resume_upload_verified:'no',cover_letter_used:'no',submission_verified:'no',verification_evidence:'',
     stepsCompleted:0,fieldsFilled:0,requiredBlockers:[],simplifyClicks:0,simplifyStartClicks:0,simplifyStatus:'not-tested',
     blocker:'',artifact_path:'',confirmation_url:'',independentApplied:false,submitButton:'',
-    cookie_banners_accepted:0,site_notices_dismissed:0
+    cookie_banners_accepted:0,site_notices_dismissed:0,review_questions_path:''
   };
   let writeAhead=false, attemptedClick=false;
   const markApplicationStarted=()=>{
@@ -248,6 +249,16 @@ export async function processJob({context,job,config,profile,resumePath,outboxDi
   };
   const simp=simplifySettings(config);
   const simplifyStartedLocations=new WeakMap();
+  const saveReviewQuestions=async formRoot=>{
+    const questions=await collectScreeningReview(formRoot);
+    if(!questions.length)return;
+    const folder=path.join(outboxDir,'review-questions');
+    fs.mkdirSync(folder,{recursive:true});
+    const filename=`${hashJob(job.url)}.json`;
+    fs.writeFileSync(path.join(folder,filename),JSON.stringify({jobUrl:job.url,createdAt:new Date().toISOString(),
+      instruction:'Only put verified answers into profile.applicationAnswers, using exact question text and exact option labels. Never guess.',questions},null,2));
+    result.review_questions_path=path.join('review-questions',filename);
+  };
   const clearNotices=async page=>{
     checkActive();
     const handled=await handleSiteAcknowledgements(page,config);
@@ -388,7 +399,7 @@ export async function processJob({context,job,config,profile,resumePath,outboxDi
         result.blocker=`Legal acknowledgement needs your review before advancing: ${legalConsents.join('; ')}`;
         return result;
       }
-      if (blockers.length) {result.status='needs-review';result.blocker=`Required fields need truthful answers: ${blockers.join('; ')}`;return result;}
+      if (blockers.length) {result.status='needs-review';result.blocker=`Required fields need truthful answers: ${blockers.join('; ')}`;await saveReviewQuestions(form.root);return result;}
 
       const submit=await getAction(form.root,SUBMIT_PATTERNS);
       if (submit) {
@@ -404,7 +415,7 @@ export async function processJob({context,job,config,profile,resumePath,outboxDi
         if (CHALLENGE_TEXT.test(preSubmitText)) {result.status='blocked';result.blocker='Human verification required';return result;}
         // Never submit when HTML5 validation or unresolved required items remain.
         const finalBlockers=await getRequiredBlockers(form.root);
-        if(finalBlockers.length){result.status='needs-review';result.blocker=`Before submit: ${finalBlockers.join('; ')}`;return result;}
+        if(finalBlockers.length){result.status='needs-review';result.blocker=`Before submit: ${finalBlockers.join('; ')}`;await saveReviewQuestions(form.root);return result;}
         const beforeSubmit=new Map();
         for (const openPage of pages.filter(p=>!p.isClosed())) beforeSubmit.set(openPage,{
           url:openPage.url(),text:openPage===page?preSubmitText:await pageText(openPage)
