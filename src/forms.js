@@ -4,6 +4,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fillExplicitScreeningChoices } from './screening-questions.js';
+import { isCoverLetterLabel, isResumeLabel } from './cover-letter.js';
 
 const compact = s => String(s ?? '').replace(/\s+/g, ' ').trim();
 const norm = s => compact(s).toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
@@ -81,7 +82,8 @@ export function answerForQuestion(description, type, profile={}, config={}) {
   if (/\b(?:us|u s|united states)\b.*\bcitizen(?:ship)?\b|\bcitizen(?:ship)?\b.*\b(?:us|u s|united states)\b/i.test(text)) return /citizen/i.test(profile.workAuthorization || '') ? 'Yes' : '';
   if (/\b(?:willing|able) to relocate\b|\brelocation\b.*\b(?:required|willing)\b/i.test(text)) return config.strictRemote === true ? 'No' : '';
   if (DO_NOT_INFER.test(text)) return '';
-  if (/cover letter|additional information|why .*interested/i.test(text)) return config.coverLetterText || '';
+  if (/cover letter/i.test(text)) return '';
+  if (/additional information|why .*interested/i.test(text)) return config.coverLetterText || '';
   if (/first.?name/i.test(text) && /last.?name/i.test(text)) return profile.fullName || `${profile.firstName||''} ${profile.lastName||''}`.trim();
   for (const [regex,key] of FIELD_MAP) if(regex.test(text)) return profile[key] || '';
   if (type === 'email') return profile.email || '';
@@ -216,7 +218,7 @@ export async function fillApplicationScope({root,profile,config,resumePath}) {
     const el=fields.nth(i);
     if(!await el.isVisible().catch(()=>false) || !await el.isEnabled().catch(()=>false)) continue;
     const info=await detailsOf(el);
-    if(!info || info.readOnly || compact(info.value) || info.role==='combobox' || info.hasPopup==='listbox' || ['password','search','checkbox','radio'].includes(info.type)) continue;
+    if(!info || info.readOnly || compact(info.value) || info.role==='combobox' || info.hasPopup==='listbox' || isCoverLetterLabel(info.desc) || ['password','search','checkbox','radio'].includes(info.type)) continue;
     const answer=answerForQuestion(info.desc,info.type,profile,config);
     if(!String(answer).trim()) continue;
     if(info.type==='number' && !/^-?\d+(?:\.\d+)?$/.test(String(answer))) continue;
@@ -263,7 +265,7 @@ export async function fillApplicationScope({root,profile,config,resumePath}) {
     for (let i=0,n=Math.min(15,await files.count().catch(()=>0));i<n;i++) {
       const el=files.nth(i);
       const info=await detailsOf(el);
-      if (!info || (n>1 && !/resume|\bcv\b|curriculum|\.pdf|\.doc/i.test(info.desc))) continue;
+      if (!info || isCoverLetterLabel(info.desc) || (n>1 && !isResumeLabel(info.desc))) continue;
       try {
         const existing=await el.evaluate(e=>[...(e.files||[])].map(f=>f.name));
         const uploadedNow=!existing.includes(path.basename(resumePath));
@@ -364,8 +366,12 @@ export async function getAction(root, patterns) {
 // Read-only inspection for users who explicitly disable native autofill fallback.
 export async function inspectApplicationResume(root,resumePath) {
   const base=resumePath?path.basename(resumePath):'';
-  const items=await root.locator('input[type="file"]').evaluateAll(els=>els.map(e=>[...(e.files||[])].map(f=>f.name))).catch(()=>[]);
-  const uploaded=items.flat();
+  const items=await root.locator('input[type="file"]').evaluateAll(els=>els.map(e=>({
+    label:[[...(e.labels||[])].map(x=>x.textContent||'').join(' '),e.getAttribute('aria-label'),e.name,e.id].filter(Boolean).join(' '),
+    files:[...(e.files||[])].map(f=>f.name)
+  }))).catch(()=>[]);
+  const candidates=items.filter(x=>isResumeLabel(x.label) || (items.length===1 && !isCoverLetterLabel(x.label)));
+  const uploaded=candidates.flatMap(x=>x.files);
   const verified=!!base && uploaded.includes(base);
-  return {fills:0,resumeInfo:{hasFileInput:items.length>0,verified,filename:verified?base:''}};
+  return {fills:0,resumeInfo:{hasFileInput:candidates.length>0,verified,filename:verified?base:''}};
 }
