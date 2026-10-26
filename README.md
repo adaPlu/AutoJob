@@ -156,6 +156,7 @@ Settings live in **private `config.json`**. Values from `config.example.json` ar
 - `preLogin`: controls account-site staging, timeouts, and whether unavailable accounts are skipped.
 - `simplifyCopilot`: enables the visible extension controls, including `tryStartApplicationButton` and `tryAutofillButton`, with native fallback.
 - `siteAcknowledgements`: handles recognized cookie/info banners; this **does not** authorize employment contracts, background checks, attestations, or assessments.
+- Legal certification, arbitration, background-check consent, and similar confirmation checkboxes/radio buttons pause for personal review before advancing, even when an extension has already checked them. Complete those steps personally on the employer site.
 - `maxJobAttempts`: per-posting retry limit; uncertain prior submissions should not be blindly retried.
 - `itemInactivityTimeoutMs`: idle time before a job/form/search/feed is considered stalled; default is `300000` milliseconds (five minutes). A completed page/application milestone resets the timer. Do not set this too low for normal forms and slow sites.
 
@@ -177,7 +178,7 @@ AutoJob only requests the `https://www.googleapis.com/auth/gmail.readonly` scope
 
 - An attempted submission, a clicked Submit button, or even a browser confirmation screen **does not** increase the email-confirmed success count.
 - Gmail search looks for affirmative employer/ATS acknowledgement language (for example, *application received* or *thank you for applying*), with a sender address and a receipt date after the logged attempt.
-- The email must match the **company** recorded for an attempted job; if multiple jobs at the same employer could match, the email must identify a unique role. One receipt may confirm only **one** logged job. Job-board forwarding notices, promotional alerts, non-job applications, and messages before the attempt do not count.
+- An employer/ATS receipt must match the **company and the specific job title** recorded after a submission click. Generic company-only acknowledgements are flagged as ambiguous—even if the log contains just one role at that company. The pre-click write-ahead status `submit-attempted` is **not** evidence of a completed click. One receipt may confirm only **one** logged job. Job-board forwarding notices, promotional alerts, non-job applications, and messages before the attempt do not count.
 - A successful match adds `submitted-email-confirmed` to `data/application-log.csv` and records the Gmail message ID, sender, and receipt timestamp in the local ledger. Repeated runs are idempotent and do not double-count the same job.
 - Unmatched or ambiguous messages are not assumed to prove failure. Use the employer's dashboard or review the message manually; some employers never send confirmation emails. Gmail's readonly scope is **restricted** by Google, so public distribution to other users may require OAuth verification.
 
