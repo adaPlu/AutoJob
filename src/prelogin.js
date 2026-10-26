@@ -173,8 +173,21 @@ export async function runPreLogin({context,config={},root,ask=defaultPrompt,logg
     status.push({source:item.source,label:item.label,url:safeSiteUrl(item.page?.url?.()||item.url),state,autoSearchEnabled,manuallyAcknowledged:true});
     logger.log(`  ${displayState}: ${item.label}`);
   }
-  // Signing in persists in the dedicated Chrome profile; tab closure avoids leaving a cluttered browser.
-  if(settings.closeLoginTabs!==false) for(const o of opened)await o.page?.close().catch(()=>{});
+  // All login tabs were created by AutoJob, so they may be safely released if Chrome
+  // later runs out of tab resources. Never close existing/user-created Chrome tabs.
+  let loginTabsReleased=false;
+  const releaseLoginTabs=async()=>{
+    if(loginTabsReleased)return 0;
+    let released=0;
+    for(const o of opened){
+      if(!o.page || o.page.isClosed())continue;
+      try{await o.page.close({runBeforeUnload:false});released++;}catch{}
+    }
+    loginTabsReleased=true;
+    return released;
+  };
+  // Keep the existing closeLoginTabs preference unless resource recovery is necessary.
+  if(settings.closeLoginTabs!==false)await releaseLoginTabs();
   const report=buildReporter(status,config,root);
   const blocked=status.filter(s=>!s.autoSearchEnabled).map(s=>s.source);
   const isStrict=settings.requireAllAccountSessions===true;
@@ -183,5 +196,5 @@ export async function runPreLogin({context,config={},root,ask=defaultPrompt,logg
   logger.log('Any site labeled AUTO-ENABLED will be searched and applications attempted automatically, subject to the normal limits and job filters.');
   logger.log('A sign-in marked unverified does not certify that the account is authenticated.');
   logger.log(`Report saved to data/prelogin-status.json.`);
-  return {enabled:true,proceed,blockedSources:settings.skipUnavailableSources===false?[]:blocked,report,plan};
+  return {enabled:true,proceed,blockedSources:settings.skipUnavailableSources===false?[]:blocked,report,plan,releaseLoginTabs};
 }
