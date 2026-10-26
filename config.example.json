@@ -106,6 +106,10 @@
   "profileFile": "profile.json",
   "resumePath": "resume.pdf",
   "coverLetterText": "",
+  "coverLetter": {
+    "enabled": true,
+    "generateForOptional": false
+  },
   "maxDiscoverySearchesPerRun": 100,
   "jobUrls": [],
   "_bundleVersion": "1.5.4",

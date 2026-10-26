@@ -335,3 +335,13 @@ AutoJob never invents screening answers. For radio groups and industry/experienc
 When a form has unanswered screening controls, AutoJob saves a private question-and-options report under `outbox/review-questions/`; this folder is ignored by Git and must not be uploaded to GitHub. Copy only personally verified facts into the private `profile.json` and rerun after resolving the questions. The program does not silently mark unanswered questions as complete.
 
 For wider discovery, set `maxDiscoverySearchesPerRun` to at least the number of browser-based sources (plus additional rounds as desired), and set `maxQueriesPerSource` above 1 to search each source more than once. `maxJobsPerSource` limits postings inspected on each site; `maxPostingsInspectedPerRun` independently caps all inspected postings. The final application limit `maxJobsPerRun` still counts only applications that begin a workflow, not rejected postings.
+
+### Automatic job-specific cover letters
+
+When an employer's application form requires a cover letter, AutoJob generates one from the **private applicant profile** and text of that specific job posting. It matches only skills explicitly listed in `profile.skills`; optionally documented project descriptions can be supplied under `profile.projects` (each with `name`, `description`, and `technologies`). Never put unsupported experience, awards, or training into the applicant profile.
+
+- A required cover-letter text area receives the generated letter. A required cover-letter PDF or plain-text upload receives a file created in `outbox/cover-letters/`, distinct from the résumé upload. AutoJob verifies that each upload was selected.
+- If no cover letter is requested, nothing is generated. Optional cover-letter fields are left alone by default; enable `coverLetter.generateForOptional` if you also want optional letters.
+- An existing cover letter is preserved rather than overwritten. If a required field cannot be filled (for example, an unsupported DOCX-only upload), the application stops for review; it does not falsely claim to have provided a letter.
+- Set `coverLetter.enabled` to `false` in private `config.json` to disable automatic letters. `coverLetterText` is retained for legacy general-answer fields but is not automatically treated as a newly generated letter.
+- Generated files and the candidate's source profile stay in the Git-ignored local folders; they are not committed to GitHub. Letter drafting uses no third-party API or separate web request.

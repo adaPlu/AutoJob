@@ -8,6 +8,7 @@ import { findApplicationScope, fillApplicationScope, inspectApplicationResume, g
 import { trySimplifyAutofill, trySimplifyStartApplicationOnPages, simplifySettings } from './simplify-copilot.js';
 import { handleSiteAcknowledgements } from './acknowledgements.js';
 import { collectScreeningReview } from './screening-questions.js';
+import { fillCoverLetterFields } from './cover-letter.js';
 import { CONFIRMATION_TEXT, FAILURE_TEXT, CHALLENGE_TEXT,
   matchEvidence, confirmationUrl, classifyEvidence } from './verification.js';
 
@@ -239,9 +240,9 @@ export async function processJob({context,job,config,profile,resumePath,outboxDi
     resume_upload_verified:'no',cover_letter_used:'no',submission_verified:'no',verification_evidence:'',
     stepsCompleted:0,fieldsFilled:0,requiredBlockers:[],simplifyClicks:0,simplifyStartClicks:0,simplifyStatus:'not-tested',
     blocker:'',artifact_path:'',confirmation_url:'',independentApplied:false,submitButton:'',
-    cookie_banners_accepted:0,site_notices_dismissed:0,review_questions_path:''
+    cookie_banners_accepted:0,site_notices_dismissed:0,review_questions_path:'',cover_letter_path:''
   };
-  let writeAhead=false, attemptedClick=false;
+  let writeAhead=false, attemptedClick=false, coverDraft=null;
   const markApplicationStarted=()=>{
     if(result.applicationStarted)return;
     result.applicationStarted=true;
@@ -367,7 +368,23 @@ export async function processJob({context,job,config,profile,resumePath,outboxDi
       const resumeName=resumePath && fs.existsSync(resumePath) ? path.basename(resumePath):'';
       resumeEverVerified = resumeEverVerified || filled.resumeInfo.verified;
       if (resumeEverVerified) {result.resume_upload_verified='yes';result.resume_used=resumeName || filled.resumeInfo.filename;}
-      result.cover_letter_used=filled.fills && config.coverLetterText ? 'maybe' : 'no';
+      // Create a fresh letter only when an application actually requests one.
+      // A missing verified fact or unsupported required upload format blocks submission.
+      const letter=await fillCoverLetterFields({root:form.root,profile,config,
+        job:{url:job.url,title:result.title,company:result.company},
+        postingText:original,outboxDir,draft:coverDraft});
+      if(letter.draft?.ok)coverDraft=letter.draft;
+      if(letter.used==='generated'){
+        result.cover_letter_used='generated';result.cover_letter_path=letter.path;
+        result.fieldsFilled+=letter.inserted;
+      }else if(letter.used==='existing' && result.cover_letter_used==='no'){
+        result.cover_letter_used='existing';
+      }
+      if(letter.errors.length){
+        result.status='needs-review';
+        result.blocker='Required cover letter needs review: '+letter.errors.join('; ');
+        return result;
+      }
       // Workday/Greenhouse may asynchronously parse a résumé and populate more fields.
       await wait(450);
       await clearNotices(page);
