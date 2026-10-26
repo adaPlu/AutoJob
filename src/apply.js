@@ -4,7 +4,7 @@ import path from 'node:path';
 import { hashJob, updateLedger } from './submission-ledger.js';
 import { plausibleRoleTitle, postingRemoteStatus, classificationFromApplication } from './eligibility.js';
 import { isJobUrl, fitScore as computeFitScore } from './discover.js';
-import { findApplicationScope, fillApplicationScope, inspectApplicationResume, getRequiredBlockers, formFingerprint, getAction } from './forms.js';
+import { findApplicationScope, fillApplicationScope, inspectApplicationResume, getRequiredBlockers, getLegalConsentBlockers, formFingerprint, getAction } from './forms.js';
 import { trySimplifyAutofill, trySimplifyStartApplicationOnPages, simplifySettings } from './simplify-copilot.js';
 import { handleSiteAcknowledgements } from './acknowledgements.js';
 import { CONFIRMATION_TEXT, FAILURE_TEXT, CHALLENGE_TEXT,
@@ -353,6 +353,14 @@ export async function processJob({context,job,config,profile,resumePath,outboxDi
       // Never equate a visible button click with successful field completion.
       // The next phase validates required fields and the resume upload.
 
+      // Simplify or the site itself may pre-check an attestation. A checked
+      // box is not authorization to make a legally meaningful declaration.
+      const legalConsents=await getLegalConsentBlockers(form.root);
+      if (legalConsents.length) {
+        result.status='needs-review';
+        result.blocker=`Legal acknowledgement needs your review before advancing: ${legalConsents.join('; ')}`;
+        return result;
+      }
       if (blockers.length) {result.status='needs-review';result.blocker=`Required fields need truthful answers: ${blockers.join('; ')}`;return result;}
 
       const submit=await getAction(form.root,SUBMIT_PATTERNS);
