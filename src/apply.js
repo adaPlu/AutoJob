@@ -489,6 +489,16 @@ export async function processJob({context,job,config,profile,resumePath,outboxDi
       }
     }
     context.off('page',onNewPage);
-    for (const page of pages.slice().reverse()) await page.close().catch(()=>{});
+    // Keep human-only steps available in the dedicated Chrome profile.
+    // Do not auto-resume/submit after MFA, CAPTCHA, or legal confirmation.
+    const leaveForHuman=!signal?.aborted && (
+      ['blocked','authentication-required'].includes(result.status) ||
+      /^Legal acknowledgement needs your review/.test(result.blocker)
+    );
+    if(leaveForHuman){
+      result.blocker=[result.blocker,'Application tab left open for manual completion; AutoJob did not submit it.'].filter(Boolean).join(' ');
+    } else {
+      for (const page of pages.slice().reverse()) await page.close().catch(()=>{});
+    }
   }
 }
