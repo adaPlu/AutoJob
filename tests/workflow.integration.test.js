@@ -24,7 +24,7 @@ test('fills a real browser application form, selects resume and clicks final sub
       <label>Resume <input type="file" name="resume" required></label>
       <button type="submit">Submit Application</button></form></body></html>`;
     const jobUrl='https://careers.example.invalid/jobs/junior-software-engineer';
-    let browser;
+    let browser, started=0;
     try{
       browser=await chromium.launch({executablePath:process.env.CHROMIUM_PATH||'/usr/bin/chromium',headless:true,args:['--no-sandbox']});
       const context=await browser.newContext();
@@ -36,11 +36,22 @@ test('fills a real browser application form, selects resume and clicks final sub
         p.goto=async()=>{await p.setContent(html);};
         return p;
       };
-      const result=await processJob({context,job:{url:jobUrl,source:'companycareers',anchorText:'Junior Software Engineer'},config:{autoSubmit:true,strictRemote:true,requireResumeUpload:true,minFitScore:1,preferredKeywords:['java','python','react'],submissionVerifyTimeoutMs:4500},profile:{firstName:'Taylor',lastName:'Sample',email:'taylor@example.test',phone:'5551234567'},resumePath,outboxDir:path.join(tmp,'outbox'),fitScore:0,ledgerFile:path.join(tmp,'ledger.json')});
+      const result=await processJob({context,job:{url:jobUrl,source:'companycareers',anchorText:'Junior Software Engineer'},config:{autoSubmit:true,strictRemote:true,requireResumeUpload:true,minFitScore:1,preferredKeywords:['java','python','react'],submissionVerifyTimeoutMs:4500},profile:{firstName:'Taylor',lastName:'Sample',email:'taylor@example.test',phone:'5551234567'},resumePath,outboxDir:path.join(tmp,'outbox'),fitScore:0,ledgerFile:path.join(tmp,'ledger.json'),onApplicationStarted:()=>{started++;}});
       assert.equal(result.status,'submitted-pending-receipt',JSON.stringify(result));
+      assert.equal(started,1,'application start is notified exactly once');
+      assert.equal(result.applicationStarted,true);
       assert.equal(result.resume_upload_verified,'yes');
       assert.match(result.verification_evidence,/submitted/i);
       assert.ok(result.artifact_path);
+      // A rejected job must not consume an application slot or fire the callback.
+      const lowFit=await processJob({context,job:{url:jobUrl,source:'companycareers',anchorText:'Junior Software Engineer'},
+        config:{autoSubmit:true,strictRemote:true,requireResumeUpload:true,minFitScore:10000,preferredKeywords:['java','python']},
+        profile:{firstName:'Taylor',lastName:'Sample',email:'taylor@example.test'},resumePath,
+        outboxDir:path.join(tmp,'outbox'),fitScore:0,ledgerFile:path.join(tmp,'low-fit-ledger.json'),
+        onApplicationStarted:()=>{started++;}});
+      assert.equal(lowFit.status,'skipped-low-fit');
+      assert.equal(lowFit.applicationStarted,false);
+      assert.equal(started,1,'rejected posting must not notify application start');
     }finally{
       await browser?.close();
       fs.rmSync(tmp,{recursive:true,force:true});

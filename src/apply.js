@@ -222,7 +222,7 @@ async function saveVerificationArtifact(page, outboxDir, job, result, observatio
   return {relative, captured:artifact.screenshotCaptured && artifact.htmlCaptured};
 }
 
-export async function processJob({context,job,config,profile,resumePath,outboxDir,fitScore,ledgerFile,signal,registerPage=()=>{},progress=()=>{}}) {
+export async function processJob({context,job,config,profile,resumePath,outboxDir,fitScore,ledgerFile,signal,registerPage=()=>{},progress=()=>{},onApplicationStarted=()=>{}}) {
   const checkActive=()=>{ if(signal?.aborted) throw signal.reason || new Error('Item aborted by watchdog'); };
   checkActive();
   const basePage=await context.newPage();
@@ -234,13 +234,18 @@ export async function processJob({context,job,config,profile,resumePath,outboxDi
   context.on('page',onNewPage);
   const result={
     timestamp:new Date().toISOString(), company:'', title:'', url:job.url, source:job.source,
-    work_mode:'unknown',fit_score:fitScore,status:'opened',simplify_autofill:'unknown',resume_used:'',
+    work_mode:'unknown',fit_score:fitScore,status:'opened',applicationStarted:false,simplify_autofill:'unknown',resume_used:'',
     resume_upload_verified:'no',cover_letter_used:'no',submission_verified:'no',verification_evidence:'',
     stepsCompleted:0,fieldsFilled:0,requiredBlockers:[],simplifyClicks:0,simplifyStartClicks:0,simplifyStatus:'not-tested',
     blocker:'',artifact_path:'',confirmation_url:'',independentApplied:false,submitButton:'',
     cookie_banners_accepted:0,site_notices_dismissed:0
   };
   let writeAhead=false, attemptedClick=false;
+  const markApplicationStarted=()=>{
+    if(result.applicationStarted)return;
+    result.applicationStarted=true;
+    onApplicationStarted();
+  };
   const simp=simplifySettings(config);
   const simplifyStartedLocations=new WeakMap();
   const clearNotices=async page=>{
@@ -257,6 +262,7 @@ export async function processJob({context,job,config,profile,resumePath,outboxDi
     for(const item of attempt.results) {
       if(!item.clicked)continue;
       result.simplifyStartClicks++;
+      markApplicationStarted();
       simplifyStartedLocations.set(item.page,item.page.url());
     }
   };
@@ -292,6 +298,7 @@ export async function processJob({context,job,config,profile,resumePath,outboxDi
     let landing=activePage(pages,basePage);
     await landing.waitForLoadState('domcontentloaded',{timeout:7000}).catch(()=>{});
     let form=await findApplicationScope(landing);
+    if(form)markApplicationStarted();
     // Job boards frequently open a second apply page/ATS before the actual form.
     // Follow up to three recognizable application CTAs; never click arbitrary Next buttons.
     for(let hop=0;!form && hop<3;hop++){
@@ -299,6 +306,7 @@ export async function processJob({context,job,config,profile,resumePath,outboxDi
       await clearNotices(landing);
       const apply=await clickByNames(landing,[/^easy apply$/i,/^apply now$/i,/^apply$/i,/^apply for this job$/i,/^start application$/i,/^apply on company (?:site|website)$/i,/^continue to application$/i,/^apply on (?:external|company) site$/i,/^apply for (?:this|the) position$/i,/^apply to (?:this|the) (?:job|position)$/i,/^apply with linkedin$/i,/^apply using (?:resume|profile)$/i,/^start (?:your )?application$/i]);
       if(!apply.clicked){result.status='needs-review';result.blocker=`No application button found at ${landing.url()}`;return result;}
+      markApplicationStarted();
       result.status='application-opened';
       await wait(1800);
       landing=activePage(pages,basePage);

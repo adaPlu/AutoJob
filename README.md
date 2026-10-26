@@ -160,7 +160,7 @@ Settings live in **private `config.json`**. Values from `config.example.json` ar
 - `maxJobAttempts`: per-posting retry limit; uncertain prior submissions should not be blindly retried.
 - `itemInactivityTimeoutMs`: idle time before a job/form/search/feed is considered stalled; default is `300000` milliseconds (five minutes). A completed page/application milestone resets the timer. Do not set this too low for normal forms and slow sites.
 
-**Counter definitions matter:** `maxJobsPerRun=200` is a cap on *application attempts*, not 200 guaranteed completed submissions. `maxDiscoverySearchesPerRun=100` is a cap on *planned browser searches*, which might stop earlier if the application cap is reached.
+**Counter definitions matter:** `maxJobsPerRun=200` caps *application workflows started* (an application form is present or a recognized Apply/Start Application control is activated), not job listings inspected, final Submit clicks, or completed submissions. Listings rejected for low fit, location, or missing application controls do not consume an application slot. AutoJob also caps inspected postings (default: at least 30 or 10 per application slot, up to 300 by default; configurable with `maxPostingsInspectedPerRun`) so unsuitable listings cannot cause an endless run. `maxDiscoverySearchesPerRun=100` caps planned browser searches, which might stop earlier if either limit is reached.
 
 ## Gmail receipt setup (optional, for email-verified submission counts)
 

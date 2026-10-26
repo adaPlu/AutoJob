@@ -13,6 +13,7 @@ import { loadJson, resolveFromRoot } from './profile.js';
 import { inspectConfiguration, requirePreflight } from './preflight.js';
 import { runPreLogin } from './prelogin.js';
 import { verifyGmailReceipts } from './gmail-verification.js';
+import { createRunBudget } from './run-budget.js';
 
 const here=path.dirname(fileURLToPath(import.meta.url));
 const root=path.resolve(here,'..');
@@ -82,12 +83,13 @@ let processed=0, discovered=0, searches=0, feedsLoaded=0, feedLinks=0, browserLi
 const skippedReasons={};
 const counts={confirmed:0,pendingReceipt:0,unverified:0,failed:0,blocked:0,readyNoSubmit:0,ready:0,needsReview:0,timedOut:0,errors:0,alreadyApplied:0,invalidJob:0,loginRequired:0,other:0};
 const recordSkip=r=>{skippedReasons[r]=(skippedReasons[r]||0)+1;};
-const maxJobs=Math.max(1,Number(config.maxJobsPerRun)||25);
+const budget=createRunBudget(config.maxJobsPerRun,config.maxPostingsInspectedPerRun);
+const maxJobs=budget.applicationLimit;
 const watchdogMs=watchdogTimeoutMs(config);
 console.log(`Per-item inactivity watchdog: ${Math.floor(watchdogMs / 60000)} minute(s).`);
 const discoveryPlan=buildDiscoveryPlan(config);
 const maxSearches=discoveryPlan.searchBudget;
-console.log(`Discovery plan: ${discoveryPlan.browserTasks.length} planned browser searches across ${discoveryPlan.sourceCount} configured sources; stop after ${maxJobs} application attempts.`);
+console.log(`Discovery plan: ${discoveryPlan.browserTasks.length} planned browser searches across ${discoveryPlan.sourceCount} configured sources; stop after ${maxJobs} application workflows or ${budget.inspectionLimit} postings inspected.`);
 const maxSourceJobs=Math.max(1,Number(config.maxJobsPerSource)||12);
 const sourceCounts=new Map();
 const browserSearchesBySource={};
@@ -102,7 +104,7 @@ searchPage.setDefaultTimeout(8500);
 
 async function attempt(job){
   const url=normalizeUrl(job.url,job.url);
-  if(!url || seen.has(url) || processed>=maxJobs) return false;
+  if(!url || seen.has(url) || budget.exhausted) return false;
   if(blockedSources.has(job.source)){recordSkip(`prelogin-${job.source}-needs-signin`);return false;}
   seen.add(url);
   const previous=shouldSkipJob(url,history,ledger,maxAttempts);
@@ -110,13 +112,13 @@ async function attempt(job){
   // No title-only keyword score gate: candidates often have only "Software Engineer" as link text.
   // Evaluate actual skills and remote eligibility after opening the complete posting.
   discovered++;
-  console.log(`\n[${processed+1}/${maxJobs}] Opening application: ${url}`);
-  let result;
+  console.log(`\n[posting ${processed+1}/${budget.inspectionLimit}; applications ${budget.applicationAttempts}/${maxJobs}] Inspecting: ${url}`);
+  let result,applicationStarted=false;
   try {
     const openedPages = new Set();
     const outcome=await runWithWatchdog({
       label:`application ${url}`, timeoutMs:watchdogMs,
-      task:({signal,progress})=>processJob({context,job:{...job,url},config:runConfig,profile,resumePath,outboxDir,fitScore:0,ledgerFile,signal,progress,registerPage:p=>{openedPages.add(p);if(signal.aborted)p.close({runBeforeUnload:false}).catch(()=>{});}}),
+      task:({signal,progress})=>processJob({context,job:{...job,url},config:runConfig,profile,resumePath,outboxDir,fitScore:0,ledgerFile,signal,progress,onApplicationStarted:()=>{applicationStarted=true;},registerPage:p=>{openedPages.add(p);if(signal.aborted)p.close({runBeforeUnload:false}).catch(()=>{});}}),
       onTimeout:()=>Promise.allSettled([...openedPages].map(p=>p.close({runBeforeUnload:false})))
     });
     if (outcome.timedOut) {
@@ -141,8 +143,12 @@ async function attempt(job){
   // Keep per-run dedup + uncertainty in sync without reparsing the CSV per job.
   if (['submitted-confirmed','already-applied'].includes(result.status)) history.set(url,{last:result.status,permanent:true});
   if (['submitted-pending-receipt','submit-clicked-unverified'].includes(result.status)) history.set(url,{last:result.status,uncertain:true});
-  processed++;
-  applicationAttemptsBySource[job.source||'unknown']=(applicationAttemptsBySource[job.source||'unknown']||0)+1;
+  // Count genuine application workflows, not candidate pages rejected by fit/remote gates.
+  const started=applicationStarted || result.applicationStarted===true ||
+    ['submitted-confirmed','submitted-pending-receipt','submit-clicked-unverified','submission-failed'].includes(result.status);
+  budget.record({applicationStarted:started});
+  processed=budget.inspected;
+  if(started) applicationAttemptsBySource[job.source||'unknown']=(applicationAttemptsBySource[job.source||'unknown']||0)+1;
   switch(result.status){
     case 'submitted-confirmed':counts.confirmed++;break;
     case 'submitted-pending-receipt':counts.pendingReceipt++;break;
@@ -177,7 +183,7 @@ function sourceFor(url){
 
 try {
   for(const raw of config.jobUrls||[]){
-    if(processed>=maxJobs)break;
+    if(budget.exhausted)break;
     const url=typeof raw==='string'?raw:raw.url;
     if(!url) continue;
     await attempt({url,source:typeof raw==='object' && raw.source?raw.source:sourceFor(url),query:'direct link',anchorText:typeof raw==='object'?raw.title||'':''});
@@ -185,7 +191,7 @@ try {
   // Public, structured feeds are first: fewer brittle search result pages.
   // Search engines/site-specific pages remain useful fallback sources.
   for(const jobBatch of discoveryPlan.feeds){
-    if(processed>=maxJobs)break;
+    if(budget.exhausted)break;
     try{
       console.log(`\nFetching ${jobBatch.source} remote listings (public API)...`);
       const outcome=await runWithWatchdog({label:`feed ${jobBatch.source}`,timeoutMs:watchdogMs,
@@ -198,7 +204,7 @@ try {
       console.log(`  ${found.length} filtered listings in feed`);
       let sourceCount=0;
       for(const job of found){
-        if(processed>=maxJobs || sourceCount>=maxSourceJobs) break;
+        if(budget.exhausted || sourceCount>=maxSourceJobs) break;
         if(await attempt(job))sourceCount++;
       }
       sourceCounts.set(jobBatch.source,sourceCount);
@@ -208,7 +214,7 @@ try {
   }
   // Fair round-robin: every enabled site gets a turn before any site consumes a second query.
   for(const task of discoveryPlan.browserTasks){
-    if(processed>=maxJobs)break;
+    if(budget.exhausted)break;
     const source=task.source,query=task.query;
     if(blockedSources.has(source)){recordSkip(`prelogin-${source}-needs-signin`);continue;}
     let sourceCount=sourceCounts.get(source)||0;
@@ -241,7 +247,7 @@ try {
     candidatesBySource[source]=(candidatesBySource[source]||0)+found.length;
     console.log(`  ${found.length} candidate link(s) found.`);
     for(const job of found){
-      if(processed>=maxJobs||sourceCount>=maxSourceJobs)break;
+      if(budget.exhausted||sourceCount>=maxSourceJobs)break;
       const attempted=await attempt(job);
       if(attempted)sourceCount++;
     }
@@ -261,7 +267,7 @@ try {
   }
   fs.mkdirSync(outboxDir,{recursive:true});
   fs.writeFileSync(path.join(outboxDir,'gmail-verification-summary.json'),JSON.stringify(gmailSummary,null,2));
-  const summary={watchdogTimeoutMs:watchdogMs,watchdogTimeoutCount:timeouts,createdAt:new Date().toISOString(),kind:dryRun?'dry-run':'live-attempt',jobsProcessed:processed,candidatesOpened:discovered,searches,searchBudget:maxSearches,plannedBrowserSearches:discoveryPlan.browserTasks.length,feedsLoaded,feedLinks,browserLinks,simplifyClicks,simplifyStartClicks,simplifyUsed,loginStage:{enabled:loginStage.enabled!==false,manualAcknowledgment:loginStage.enabled!==false,sitesOpened:loginStage.report?.siteCount||0,blockedSources:[...blockedSources],autoEnabledSources:loginStage.report?.autoEnabled||[],reportFile:loginStage.report?path.join(root,'data','prelogin-status.json'):null},discoverySources:discoveryPlan.sourceCount,browserSearchesBySource,applicationAttemptsBySource,candidatesBySource,...counts,skippedReasons,
+  const summary={watchdogTimeoutMs:watchdogMs,watchdogTimeoutCount:timeouts,createdAt:new Date().toISOString(),kind:dryRun?'dry-run':'live-attempt',jobsProcessed:processed,applicationAttempts:budget.applicationAttempts,postingsInspectionLimit:budget.inspectionLimit,candidatesOpened:discovered,searches,searchBudget:maxSearches,plannedBrowserSearches:discoveryPlan.browserTasks.length,feedsLoaded,feedLinks,browserLinks,simplifyClicks,simplifyStartClicks,simplifyUsed,loginStage:{enabled:loginStage.enabled!==false,manualAcknowledgment:loginStage.enabled!==false,sitesOpened:loginStage.report?.siteCount||0,blockedSources:[...blockedSources],autoEnabledSources:loginStage.report?.autoEnabled||[],reportFile:loginStage.report?path.join(root,'data','prelogin-status.json'):null},discoverySources:discoveryPlan.sourceCount,browserSearchesBySource,applicationAttemptsBySource,candidatesBySource,...counts,skippedReasons,
     statusDefinitions:{confirmed:'Browser evidence only; NOT included in successful email-confirmed count',pendingReceipt:'Browser success observed; email receipt pending',unverified:'Submit was clicked; status uncertain—do not retry automatically',emailConfirmed:'Unique job and employer matched to an affirmative Gmail acknowledgement'},
     gmailVerification:gmailSummary,
     actualEmployerEmailConfirmations:gmailSummary.totalEmailConfirmed??null,
@@ -269,6 +275,6 @@ try {
     logPath,ledgerFile,evidenceDirectory:path.join(outboxDir,'verification')};
   fs.mkdirSync(outboxDir,{recursive:true});
   fs.writeFileSync(path.join(outboxDir,'last-run-summary.json'),JSON.stringify(summary,null,2));
-  console.log(`\n============= RUN RESULTS =============\nApplications opened: ${processed}\nEmployer email-confirmed submissions (SUCCESS): ${gmailSummary.totalEmailConfirmed??'Not checked'}\nGmail verification: ${gmailSummary.status}\nBrowser-verified (not employer email): ${counts.confirmed}\nSubmitted, awaiting second proof: ${counts.pendingReceipt}\nSubmit attempted, outcome unknown: ${counts.unverified}\nReview/blockers: ${counts.needsReview+counts.blocked+counts.loginRequired}\nTimed-out items: ${timeouts} (skipped)\nOther outcomes: ${counts.other+counts.failed+counts.errors+counts.invalidJob+counts.alreadyApplied}\nFeeds loaded: ${feedsLoaded}; feed candidates: ${feedLinks}\nBrowser searches: ${searches}; browser candidates: ${browserLinks}\nAccount sites enabled: ${(loginStage.report?.autoEnabled||[]).join(', ')||'(prelogin disabled)'}\nSites paused for sign-in/security challenge: ${[...blockedSources].join(', ')||'none'}\nSimplify Start Application clicks: ${simplifyStartClicks}; autofill clicks: ${simplifyClicks}; jobs using Simplify: ${simplifyUsed} (not verified submissions)\nLog: ${logPath}\nProof: ${path.join(outboxDir,'verification')}\n=======================================`);
+  console.log(`\n============= RUN RESULTS =============\nPostings inspected: ${processed}/${budget.inspectionLimit}\nApplication workflows started: ${budget.applicationAttempts}/${maxJobs}\nEmployer email-confirmed submissions (SUCCESS): ${gmailSummary.totalEmailConfirmed??'Not checked'}\nGmail verification: ${gmailSummary.status}\nBrowser-verified (not employer email): ${counts.confirmed}\nSubmitted, awaiting second proof: ${counts.pendingReceipt}\nSubmit attempted, outcome unknown: ${counts.unverified}\nReview/blockers: ${counts.needsReview+counts.blocked+counts.loginRequired}\nTimed-out items: ${timeouts} (skipped)\nOther outcomes: ${counts.other+counts.failed+counts.errors+counts.invalidJob+counts.alreadyApplied}\nFeeds loaded: ${feedsLoaded}; feed candidates: ${feedLinks}\nBrowser searches: ${searches}; browser candidates: ${browserLinks}\nAccount sites enabled: ${(loginStage.report?.autoEnabled||[]).join(', ')||'(prelogin disabled)'}\nSites paused for sign-in/security challenge: ${[...blockedSources].join(', ')||'none'}\nSimplify Start Application clicks: ${simplifyStartClicks}; autofill clicks: ${simplifyClicks}; jobs using Simplify: ${simplifyUsed} (not verified submissions)\nLog: ${logPath}\nProof: ${path.join(outboxDir,'verification')}\n=======================================`);
   if(!processed) console.warn('No applications were opened. Check sign-in, search source results, strict filters, or put direct links in config.jobUrls.');
 }
