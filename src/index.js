@@ -99,8 +99,25 @@ const seen=new Set();
 const history=applicationHistory(logPath);
 const ledger=readLedger(ledgerFile);
 const maxAttempts=Math.max(1,Number(config.maxJobAttempts)||3);
-let searchPage=await context.newPage();
-searchPage.setDefaultTimeout(8500);
+let searchPage;
+try {
+  const { openSearchTab }=await import('./browser.js');
+  searchPage=await openSearchTab(context,{onResourceError:loginStage.releaseLoginTabs});
+} catch(error) {
+  const message=String(error?.message||error);
+  console.error(`CHROME STARTUP FAILED: ${message}`);
+  console.error('No job pages were inspected and no application was submitted in this run.');
+  // Preserve previous application history, but never show a stale previous run
+  // as the result of this failed startup.
+  fs.mkdirSync(outboxDir,{recursive:true});
+  fs.writeFileSync(path.join(outboxDir,'last-run-summary.json'),JSON.stringify({
+    kind:'startup-failed',createdAt:new Date().toISOString(),startupError:message,
+    jobsProcessed:0,applicationAttempts:0,searches:0,
+    gmailVerification:{status:'not-checked'}
+  },null,2));
+  await browser.close().catch(()=>{});
+  process.exit(1);
+}
 
 async function attempt(job){
   const url=normalizeUrl(job.url,job.url);
