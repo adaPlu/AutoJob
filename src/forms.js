@@ -272,6 +272,21 @@ export async function fillApplicationScope({root,profile,config,resumePath}) {
   return {fills,resumeInfo:{hasFileInput:await root.locator('input[type="file"]').count().then(n=>n>0).catch(()=>false),verified:selectedResume,filename:selectedResume?path.basename(resumePath):''}};
 }
 
+
+// Explicit attestations must remain human decisions, even if Simplify has
+// pre-checked them. This is not limited to HTML required fields.
+export const LEGAL_CONSENT_LABEL = /\b(?:certif(?:y|ication)|attest(?:ation)?|under penalty of perjury|arbitration|background check|electronic signature|e[- ]?sign(?:ature)?|terms (?:and conditions|of (?:use|service))|i (?:have read and )?agree|give (?:my )?consent|consent to)\b/i;
+export async function getLegalConsentBlockers(root) {
+  const controls=root.locator('input[type="checkbox"]:visible,input[type="radio"]:visible,[role="checkbox"]:visible,[role="radio"]:visible');
+  const labels=await controls.evaluateAll(els=>els.slice(0,150).filter(el=>!el.disabled).map(el=>{
+    const label=[...(el.labels||[])].map(x=>x.textContent||'').join(' ') ||
+      el.getAttribute('aria-label') || el.closest('label')?.textContent ||
+      el.closest('fieldset')?.querySelector('legend')?.textContent || '';
+    return String(label).replace(/\s+/g,' ').trim().slice(0,180);
+  })).catch(()=>[]);
+  return [...new Set(labels.filter(label=>LEGAL_CONSENT_LABEL.test(label)))].slice(0,8);
+}
+
 // Respect native validity, explicit required indicators and server-returned errors.
 // A missing answer is a review item, not a reason to lie or click Submit blindly.
 export async function getRequiredBlockers(root) {
