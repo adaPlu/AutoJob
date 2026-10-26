@@ -8,9 +8,9 @@ import {buildDiscoveryPlan} from '../src/discovery-plan.js';
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const c=JSON.parse(fs.readFileSync(path.join(root,'config.example.json'),'utf8'));
 
-test('v1.5.3 default builds 100 search tasks with balanced round-robin source coverage',()=>{
+test('current release builds 100 search tasks with balanced round-robin source coverage',()=>{
  const p=buildDiscoveryPlan(c);
- assert.equal(c._bundleVersion,'1.5.3');
+ assert.equal(c._bundleVersion,JSON.parse(fs.readFileSync(path.join(root,'package.json'),'utf8')).version);
  assert.equal(p.searchBudget,100);
  assert.equal(p.browserTasks.length,100);
  assert.equal(p.sourceCount,27);
