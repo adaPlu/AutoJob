@@ -8,7 +8,7 @@ import {normalizeUrl} from './discover.js';
 import {ledgerPath,updateLedger} from './submission-ledger.js';
 import {loadGmailOAuthClient,listGmailAccounts,authorizedToken,gmailMessages,gmailMessage} from './gmail-client.js';
 
-const SUBMITTED=new Set(['submitted-confirmed','submitted-verified','submitted-pending-receipt','submit-clicked-unverified','submission-unverified','submit-attempted']);
+const SUBMITTED=new Set(['submitted-confirmed','submitted-verified','submitted-pending-receipt','submit-clicked-unverified','submission-unverified']);
 const SUCCESS='submitted-email-confirmed';
 const POSITIVE=/\b(?:thank(?:s| you)(?: so much)? for (?:applying|your application)|application (?:was|has been|is) (?:successfully )?(?:received|submitted)|application received|we (?:have )?received your application|we received your application|we(?:'|’)ve received your application|application (?:confirmation|acknowledg(?:e)?ment))\b/i;
 const NEGATIVE=/\b(?:application sent to|forwarded your application|job alert|jobs you might like|new jobs|recommended jobs|incomplete application|finish your application|your application was not submitted|failed to submit|rejected your application|application withdrawn)\b/i;
@@ -62,13 +62,19 @@ export function matchGmailReceipts(jobs,messages,{now=Date.now()}={}){
     const potentials=jobs.filter(job=>!accepted.some(x=>x.url===job.url) &&
       timestamp>=job.firstAttempt-5*60000 && timestamp<=job.lastAttempt+7*86400000 && possibleCompany(m,job.company));
     if(!potentials.length){rejected.push({id:m.id,reason:'No matching, recent job/company'});continue;}
-    let selected=potentials;
-    if(potentials.length>1){
-      const exact=potentials.filter(job=>distinctiveTitle(m,job.title));
-      if(exact.length===1)selected=exact;
+    // A company-only acknowledgement can refer to a different role or a prior
+    // manual application. Require the actual logged role, even if just one
+    // attempt at this employer appears in our local file.
+    const titleMatches=potentials.filter(job=>distinctiveTitle(m,job.title));
+    if(titleMatches.length!==1){
+      ambiguous.push({id:m.id,reason:titleMatches.length===0
+        ? 'Receipt does not uniquely identify the logged role'
+        : 'Multiple plausible job applications match the receipt',
+        urls:potentials.map(x=>x.url)});
+      continue;
     }
-    if(selected.length!==1){ambiguous.push({id:m.id,reason:'Multiple plausible job applications; title-specific confirmation required',urls:potentials.map(x=>x.url)});continue;}
-    accepted.push({url:selected[0].url,company:selected[0].company,title:selected[0].title,messageId:m.id,from:m.from,subject:m.subject,receivedAt:m.receivedAt});
+    const matched=titleMatches[0];
+    accepted.push({url:matched.url,company:matched.company,title:matched.title,messageId:m.id,from:m.from,subject:m.subject,receivedAt:m.receivedAt});
     reserved.add(m.id);
   }
   return {accepted,ambiguous,rejected};
