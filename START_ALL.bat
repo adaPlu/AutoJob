@@ -60,7 +60,13 @@ node src\review.js
 
 echo.
 echo ==================================================
-echo  RUN COMPLETE - EXIT CODE %RUN_RESULT%
+if not "%RUN_RESULT%"=="0" (
+  echo  RUN FAILED - EXIT CODE %RUN_RESULT%
+  echo  Check the CHROME STARTUP FAILED message above and outbox\last-run-summary.json.
+  echo  No successful applications should be inferred from an empty report.
+) else (
+  echo  RUN COMPLETE - EXIT CODE 0
+)
 echo  Check data\application-log.csv and outbox\review-needed.csv
  echo  Browser button clicks are NOT proof of employer acceptance.
 echo ==================================================
