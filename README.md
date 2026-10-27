@@ -345,3 +345,11 @@ When an employer's application form requires a cover letter, AutoJob generates o
 - An existing cover letter is preserved rather than overwritten. If a required field cannot be filled (for example, an unsupported DOCX-only upload), the application stops for review; it does not falsely claim to have provided a letter.
 - Set `coverLetter.enabled` to `false` in private `config.json` to disable automatic letters. `coverLetterText` is retained for legacy general-answer fields but is not automatically treated as a newly generated letter.
 - Generated files and the candidate's source profile stay in the Git-ignored local folders; they are not committed to GitHub. Letter drafting uses no third-party API or separate web request.
+
+### Applicant-form recognition and résumé verification
+
+Job-board profile editors (such as Jobicy's `/my-profile`) and report-a-broken-link dialogs (such as Remotive's issue-report modal) are **not employer application forms**. They are excluded from autofill and do not consume an application workflow slot. Clicking a listing's Apply button alone is insufficient to count an application; AutoJob must recognize an actual applicant form. If the job board redirects to its own profile editor, the attempt is skipped with an explanation rather than uploading your résumé or changing the site's account profile.
+
+On genuine applicant forms, AutoJob uses the exact First Name and Last Name fields from `profile.json`. It can also fill a **Professional Headline** when `profile.headline` is explicitly supplied and use the already-entered `profile.summary` for an **About me** or **Professional Summary** field. It never invents a title or experience that isn't in the profile.
+
+Résumé upload detection now recognizes explicitly labeled and some hidden upload inputs, verifies the actual selected filename, and excludes cover letters, headshots, banners, and other attachments. An unverified required upload still blocks final submission. Those files and application screenshots remain private under ignored local folders.

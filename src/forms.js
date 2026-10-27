@@ -11,6 +11,14 @@ const norm = s => compact(s).toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 const FIELD_QUERY = 'input:not([type="hidden"]):not([type="submit"]):not([type="button"]),textarea,select,[role="combobox"],[role="radiogroup"],[aria-haspopup="listbox"]';
 const SCOPES = 'form,[role="dialog"],[data-testid*="application" i],[id*="application" i],[class*="application-form" i],[data-automation-id="applicationForm"]';
 const relevant = /resume|curriculum vitae|\bcv\b|first.?name|last.?name|full.?name|email|phone|apply for|application|linkedin/i;
+// A report-issue modal and a job-board profile editor are not employer applications.
+const applicantSignal = /resume|curriculum vitae|\bcv\b|first.?name|last.?name|full.?name|phone|linkedin|github|portfolio|sponsorship|work.authorization|cover.letter|candidate/i;
+const nonApplicationForm = /(?:^|[^a-z])(?:dead.link.report|report.type|error.type|edit.user|jobicy.account.nonce|profile.sections.present)(?:$|[^a-z])/i;
+export function isAccountProfilePage(url='') {
+  try {const u=new URL(url);return /(?:^|\/)my-(?:profile|account)(?:\/|$)/i.test(u.pathname) ||
+    (/jobicy\.com$/i.test(u.hostname) && /(?:^|\/)edit-profile(?:\/|$)/i.test(u.pathname));}
+  catch{return false;}
+}
 const noise = /search job|search here|sign in|log in|password|register|newsletter|subscribe|job alert/i;
 const SENSITIVE = /\b(?:captcha|password|ssn|social security|birth(?:day|date)?|date of birth|disab(?:ility|led)?|gender|pronouns|sex assigned|race|ethnic|veteran|criminal|arrest|conviction|signature|terms|consent|agree(?:ment)?|background check|security clearance|references?|marital|religio|national origin)\b/i;
 const DO_NOT_INFER = /\b(?:current employer|company name|job title|current title|education|school|university|graduat|degree|start date|end date|years? of experience|salary history|notice period|referral|referred by|available to start)\b/i;
@@ -18,6 +26,12 @@ const DO_NOT_INFER = /\b(?:current employer|company name|job title|current title
 async function scopeScore(root) {
   try {
     if (!await root.isVisible()) return -1;
+    const rootMeta=await root.evaluate(e=>({id:e.id||'',tag:e.tagName.toLowerCase(),
+      fields:[...e.querySelectorAll('input,textarea,select')].slice(0,100).map(x=>`${x.name||''} ${x.id||''}`).join(' '),
+      profileEdit:!!e.querySelector('form#edit_user'),
+      formCount:e.querySelectorAll('form').length}));
+    if(nonApplicationForm.test(rootMeta.id) ||
+      (rootMeta.tag==='body' && rootMeta.profileEdit))return -1;
     const fields = await root.locator(FIELD_QUERY).count();
     if (fields < 2) return -1;
     const details = await root.locator(FIELD_QUERY).evaluateAll(els => els.slice(0,65).map(e => {
@@ -25,6 +39,9 @@ async function scopeScore(root) {
       return `${e.id||''} ${e.name||''} ${e.placeholder||''} ${e.getAttribute('aria-label')||''} ${labels}`;
     }).join(' '));
     if (noise.test(details) && !relevant.test(details)) return -1;
+    // Email plus a 'report broken link' dropdown is not an applicant workflow.
+    if (!applicantSignal.test(details)) return -1;
+    if(nonApplicationForm.test(rootMeta.fields) && !/resume|first.?name|last.?name|phone|linkedin/i.test(details))return -1;
     let score = fields;
     if (relevant.test(details)) score += 15;
     if (/resume|curriculum vitae|\bcv\b/i.test(details)) score += 20;
@@ -35,6 +52,7 @@ async function scopeScore(root) {
 }
 
 export async function findApplicationScope(page) {
+  if(isAccountProfilePage(page.url?.()))return null;
   let best = null;
   for (const frame of page.frames()) {
     const candidates=frame.locator(SCOPES);
@@ -56,6 +74,8 @@ const FIELD_MAP = [
   [/\b(first|given)[\s_-]*name\b/i,'firstName'],
   [/\b(last|family|sur)[\s_-]*name\b/i,'lastName'],
   [/\b(full|legal|your)[\s_-]*name\b|^name$/i,'fullName'],
+  [/\bprofessional[\s_-]*headline\b|\bprofile[\s_-]*headline\b/i,'headline'],
+  [/\babout[\s_-]*me\b|\bprofessional[\s_-]*summary\b|\bprofile[\s_-]*(?:summary|bio)\b/i,'summary'],
   [/\b(e[- ]?mail)(?: address)?\b/i,'email'],
   [/\b(phone|mobile|telephone|cell)(?: number)?\b/i,'phone'],
   [/\blinked[ -]?in\b/i,'linkedin'],
@@ -101,7 +121,8 @@ async function detailsOf(el) {
     const descriptions=(e.getAttribute('aria-describedby')||'').split(/\s+/).map(named).join(' ');
     const preceding=e.previousElementSibling?.matches('label,[class*="label"],[class*="question"]')?e.previousElementSibling.textContent:'';
     const htmlType=(e.getAttribute('type')||'').toLowerCase();
-    return {desc:[labels,aria,e.getAttribute('aria-label'),legend,preceding,e.placeholder,e.getAttribute('autocomplete'),e.getAttribute('data-automation-id'),e.name,e.id,descriptions].filter(Boolean).join(' ').slice(0,700),
+    const directDesc=[labels,aria,e.getAttribute('aria-label'),preceding,e.placeholder,e.name,e.id].filter(Boolean).join(' ').slice(0,400);
+    return {directDesc,desc:[labels,aria,e.getAttribute('aria-label'),legend,preceding,e.placeholder,e.getAttribute('autocomplete'),e.getAttribute('data-automation-id'),e.name,e.id,descriptions].filter(Boolean).join(' ').slice(0,700),
       type:(e.type||htmlType).toLowerCase(),tag:e.tagName.toLowerCase(),value:e.value||'',readOnly:!!e.readOnly,
       checked:!!e.checked,role:e.getAttribute('role')||'',hasPopup:e.getAttribute('aria-haspopup')||''};
   }).catch(()=>null);
@@ -211,6 +232,37 @@ async function fillChoices(root, profile, config) {
   return fills;
 }
 
+
+// Describe upload controls without guessing that unrelated file inputs are resumes.
+// Covers hidden ATS file inputs whose visible "Upload Resume" label is on a wrapper.
+async function resumeInputs(root) {
+  const uploads=root.locator('input[type="file"]');
+  const fields=await uploads.evaluateAll(els=>els.slice(0,25).map((e,index)=>{
+    const labels=[...(e.labels||[])].map(x=>x.textContent||'').join(' ');
+    const labelled=(e.getAttribute('aria-labelledby')||'').split(/\s+/)
+      .map(id=>e.ownerDocument.getElementById(id)?.textContent||'').join(' ');
+    const group=e.closest('fieldset,.form-row,.form-group,.field-container,.application-question,[data-automation-id="formField"],[class*="upload" i]');
+    const wrapper=[e.parentElement,e.parentElement?.parentElement].filter(Boolean)
+      .map(x=>String(x.className||'')).join(' ');
+    const heading=group?.querySelector('legend,label,[class*="label" i]')?.textContent||'';
+    const direct=[e.name,e.id,e.getAttribute('aria-label'),e.getAttribute('data-testid'),
+      e.getAttribute('data-automation-id'),labels,labelled].filter(Boolean).join(' ');
+    const description=[direct,heading,group?.className,wrapper].filter(Boolean).join(' ').slice(0,700);
+    return {index,direct,description,accept:(e.getAttribute('accept')||'').toLowerCase(),
+      files:[...(e.files||[])].map(f=>f.name)};
+  })).catch(()=>[]);
+  const negative=/(?:avatar|profile photo|headshot|cover image|banner|logo|picture|portfolio image|cover[\s_-]*letter)/i;
+  const suitable=fields.filter(x=>{
+    // A label directly associated with a file input overrides unrelated text
+    // in a shared wrapper containing both Resume and Cover Letter controls.
+    if(isCoverLetterLabel(x.direct) || negative.test(x.direct))return false;
+    if(/image\/|(?:^|[,\s])\.png|\.jpe?g|\.webp/i.test(x.accept))return false;
+    if(isResumeLabel(x.direct))return true;
+    return !negative.test(x.description) && (isResumeLabel(x.description) || fields.length===1);
+  });
+  return {uploads,fields,suitable};
+}
+
 export async function fillApplicationScope({root,profile,config,resumePath}) {
   let fills=0,selectedResume=false;
   const fields=root.locator('input:not([type="hidden"]):not([type="file"]):not([type="radio"]):not([type="checkbox"]),textarea');
@@ -219,7 +271,7 @@ export async function fillApplicationScope({root,profile,config,resumePath}) {
     if(!await el.isVisible().catch(()=>false) || !await el.isEnabled().catch(()=>false)) continue;
     const info=await detailsOf(el);
     if(!info || info.readOnly || compact(info.value) || info.role==='combobox' || info.hasPopup==='listbox' || isCoverLetterLabel(info.desc) || ['password','search','checkbox','radio'].includes(info.type)) continue;
-    const answer=answerForQuestion(info.desc,info.type,profile,config);
+    const answer=answerForQuestion(info.directDesc||info.desc,info.type,profile,config);
     if(!String(answer).trim()) continue;
     if(info.type==='number' && !/^-?\d+(?:\.\d+)?$/.test(String(answer))) continue;
     if(['date','datetime-local'].includes(info.type) && !/^\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2})?$/.test(String(answer))) continue;
@@ -260,22 +312,26 @@ export async function fillApplicationScope({root,profile,config,resumePath}) {
     const value=answerForQuestion(info.desc,'combobox',profile,config);
     if(value && await chooseCustomCombobox(el,value,root)) fills++;
   }
+  const resumeFields=await resumeInputs(root);
   if(resumePath && fs.existsSync(resumePath)) {
-    const files=root.locator('input[type="file"]');
-    for (let i=0,n=Math.min(15,await files.count().catch(()=>0));i<n;i++) {
-      const el=files.nth(i);
-      const info=await detailsOf(el);
-      if (!info || isCoverLetterLabel(info.desc) || (n>1 && !isResumeLabel(info.desc))) continue;
-      try {
+    for(const item of resumeFields.suitable) {
+      const el=resumeFields.uploads.nth(item.index);
+      const basename=path.basename(resumePath);
+      const ext=path.extname(resumePath).toLowerCase();
+      const accepts=item.accept.replace(/\s/g,'');
+      if(accepts && accepts!=='*/*' && !accepts.includes(ext) &&
+          !(ext==='.pdf' && accepts.includes('application/pdf')) &&
+          !(ext==='.docx' && accepts.includes('application/vnd.openxmlformats-officedocument.wordprocessingml.document')))continue;
+      try{
         const existing=await el.evaluate(e=>[...(e.files||[])].map(f=>f.name));
-        const uploadedNow=!existing.includes(path.basename(resumePath));
+        const uploadedNow=!existing.includes(basename);
         if(uploadedNow)await el.setInputFiles(resumePath,{timeout:6500});
-        const found=await el.evaluate(e=>[...(e.files||[])].map(f=>f.name));
-        if(found.includes(path.basename(resumePath))) {selectedResume=true;if(uploadedNow)fills++;break;}
+        const verified=await el.evaluate((e,name)=>[...(e.files||[])].some(f=>f.name===name),basename);
+        if(verified){selectedResume=true;if(uploadedNow)fills++;break;}
       }catch{}
     }
   }
-  return {fills,resumeInfo:{hasFileInput:await root.locator('input[type="file"]').count().then(n=>n>0).catch(()=>false),verified:selectedResume,filename:selectedResume?path.basename(resumePath):''}};
+  return {fills,resumeInfo:{hasFileInput:resumeFields.suitable.length>0,verified:selectedResume,filename:selectedResume?path.basename(resumePath):''}};
 }
 
 
@@ -366,12 +422,7 @@ export async function getAction(root, patterns) {
 // Read-only inspection for users who explicitly disable native autofill fallback.
 export async function inspectApplicationResume(root,resumePath) {
   const base=resumePath?path.basename(resumePath):'';
-  const items=await root.locator('input[type="file"]').evaluateAll(els=>els.map(e=>({
-    label:[[...(e.labels||[])].map(x=>x.textContent||'').join(' '),e.getAttribute('aria-label'),e.name,e.id].filter(Boolean).join(' '),
-    files:[...(e.files||[])].map(f=>f.name)
-  }))).catch(()=>[]);
-  const candidates=items.filter(x=>isResumeLabel(x.label) || (items.length===1 && !isCoverLetterLabel(x.label)));
-  const uploaded=candidates.flatMap(x=>x.files);
-  const verified=!!base && uploaded.includes(base);
-  return {fills:0,resumeInfo:{hasFileInput:candidates.length>0,verified,filename:verified?base:''}};
+  const inputs=await resumeInputs(root);
+  const verified=!!base && inputs.suitable.some(x=>x.files.includes(base));
+  return {fills:0,resumeInfo:{hasFileInput:inputs.suitable.length>0,verified,filename:verified?base:''}};
 }
