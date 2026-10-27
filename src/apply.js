@@ -4,7 +4,7 @@ import path from 'node:path';
 import { hashJob, updateLedger } from './submission-ledger.js';
 import { plausibleRoleTitle, postingRemoteStatus, classificationFromApplication } from './eligibility.js';
 import { isJobUrl, fitScore as computeFitScore } from './discover.js';
-import { findApplicationScope, fillApplicationScope, inspectApplicationResume, getRequiredBlockers, getLegalConsentBlockers, formFingerprint, getAction, isAccountProfilePage } from './forms.js';
+import { findApplicationScope, fillApplicationScope, inspectApplicationResume, getRequiredBlockers, getLegalConsentBlockers, formFingerprint, getAction, isAccountProfilePage, isProfileRedirect } from './forms.js';
 import { trySimplifyAutofill, trySimplifyStartApplicationOnPages, simplifySettings } from './simplify-copilot.js';
 import { handleSiteAcknowledgements } from './acknowledgements.js';
 import { collectScreeningReview } from './screening-questions.js';
@@ -260,6 +260,12 @@ export async function processJob({context,job,config,profile,resumePath,outboxDi
       instruction:'Only put verified answers into profile.applicationAnswers, using exact question text and exact option labels. Never guess.',questions},null,2));
     result.review_questions_path=path.join('review-questions',filename);
   };
+  const stopAtProfile=async(page,form=null)=>{
+    if(!await isProfileRedirect(page,form))return false;
+    result.status='skipped-not-application-form';
+    result.blocker='Apply redirected to a job-board profile editor, not an employer application.';
+    return true;
+  };
   const clearNotices=async page=>{
     checkActive();
     const handled=await handleSiteAcknowledgements(page,config);
@@ -274,7 +280,7 @@ export async function processJob({context,job,config,profile,resumePath,outboxDi
     for(const item of attempt.results) {
       if(!item.clicked)continue;
       result.simplifyStartClicks++;
-      markApplicationStarted();
+      // A Simplify UI click is not proof that a genuine employer form exists.
       simplifyStartedLocations.set(item.page,item.page.url());
     }
   };
@@ -310,7 +316,7 @@ export async function processJob({context,job,config,profile,resumePath,outboxDi
     let landing=activePage(pages,basePage);
     await landing.waitForLoadState('domcontentloaded',{timeout:7000}).catch(()=>{});
     let form=await findApplicationScope(landing);
-    if(form)markApplicationStarted();
+    if(await stopAtProfile(landing,form))return result;
     // Job boards frequently open a second apply page/ATS before the actual form.
     // Follow up to three recognizable application CTAs; never click arbitrary Next buttons.
     for(let hop=0;!form && hop<3;hop++){
@@ -325,15 +331,11 @@ export async function processJob({context,job,config,profile,resumePath,outboxDi
       landing=activePage(pages,basePage);
       await landing.waitForLoadState('domcontentloaded',{timeout:7000}).catch(()=>{});
       await clearNotices(landing);
-      if(isAccountProfilePage(landing.url())){
-        result.status='skipped-not-application-form';
-        result.blocker='Apply redirected to a job-board profile editor, not an employer application.';
-        return result;
-      }
+      if(await stopAtProfile(landing))return result;
       const landingStatus=classificationFromApplication(await pageText(landing));
       if(landingStatus){result.status=landingStatus;result.blocker='Site requires manual sign-in or human verification';return result;}
       form=await findApplicationScope(landing);
-      if(form)markApplicationStarted();
+      if(await stopAtProfile(landing,form))return result;
     }
     if(!form){result.status='needs-review';result.blocker=`The employer application form was not detected after opening Apply (${landing.url()})`;return result;}
     let resumeEverVerified=false;
@@ -348,8 +350,10 @@ export async function processJob({context,job,config,profile,resumePath,outboxDi
       const gate=classificationFromApplication(text);
       if (gate) {result.status=gate;result.blocker=gate==='authentication-required'?'Login required in the dedicated Chrome profile':'Human verification required';return result;}
       form=await findApplicationScope(page);
+      if(await stopAtProfile(page,form))return result;
       if(!form) {result.status='needs-review';result.blocker='Application form disappeared or moved into unsupported UI';return result;}
       const before=await getRequiredBlockers(form.root);
+      if(await stopAtProfile(page,form))return result;
       // Ask the installed Simplify Copilot in-page panel to fill FIRST.
       // Its final submit remains under our form validation + evidence checks.
       const alreadyStartedHere=simplifyStartedLocations.get(page)===page.url();
@@ -367,6 +371,8 @@ export async function processJob({context,job,config,profile,resumePath,outboxDi
         result.blocker='Simplify autofill button unavailable and built-in fallback is disabled. Install or open Simplify in the dedicated Chrome profile.';
         return result;
       }
+      // Recheck a late redirect before mutating any fields or uploading files.
+      if(await stopAtProfile(page,form))return result;
       // Leave any values Simplify wrote untouched; fill missing fields safely.
       let filled=(simp.enabled && !simp.fallbackToBuiltIn)
         ? await inspectApplicationResume(form.root,resumePath)
@@ -388,6 +394,8 @@ export async function processJob({context,job,config,profile,resumePath,outboxDi
         result.cover_letter_used='existing';
       }
       if(letter.errors.length){
+        if(await stopAtProfile(page,form))return result;
+        markApplicationStarted();
         result.status='needs-review';
         result.blocker='Required cover letter needs review: '+letter.errors.join('; ');
         return result;
@@ -406,6 +414,11 @@ export async function processJob({context,job,config,profile,resumePath,outboxDi
         if(resumeEverVerified){result.resume_upload_verified='yes';result.resume_used=resumeName||second.resumeInfo.filename;}
         blockers=await getRequiredBlockers(form.root);
       }
+      // The original Jobicy/Quora failure navigated to /my-profile while
+      // the application loop was running. Verify the final destination before
+      // consuming an application slot or trusting any form blockers.
+      if(await stopAtProfile(page,form))return result;
+      markApplicationStarted();
       result.requiredBlockers=blockers;
       if (simplify.clicked) {
         result.simplify_autofill=filled.fills ? 'copilot-triggered-plus-fallback' : 'copilot-triggered';
@@ -446,8 +459,9 @@ export async function processJob({context,job,config,profile,resumePath,outboxDi
         });
         const submitLabel=await submit.innerText().catch(()=>'Submit');
         result.submitButton=normalizeEvidence(submitLabel);
-        // Abort must be checked immediately before the irreversible Submit action.
+        // Abort and redirect checks must precede the irreversible Submit action.
         checkActive();
+        if(await stopAtProfile(page,form))return result;
         // Write-ahead record survives a crash between clicking Submit and CSV append.
         updateLedger(ledgerFile,job.url,'submit-attempted',{company:result.company,title:result.title,submitButton:result.submitButton});
         writeAhead=true;
