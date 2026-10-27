@@ -353,3 +353,9 @@ Job-board profile editors (such as Jobicy's `/my-profile`) and report-a-broken-l
 On genuine applicant forms, AutoJob uses the exact First Name and Last Name fields from `profile.json`. It can also fill a **Professional Headline** when `profile.headline` is explicitly supplied and use the already-entered `profile.summary` for an **About me** or **Professional Summary** field. It never invents a title or experience that isn't in the profile.
 
 Résumé upload detection now recognizes explicitly labeled and some hidden upload inputs, verifies the actual selected filename, and excludes cover letters, headshots, banners, and other attachments. An unverified required upload still blocks final submission. Those files and application screenshots remain private under ignored local folders.
+
+### Live redirect guard and full-name fields
+
+Application-slot accounting is based on a vetted application form, **not** an Apply button, a Simplify Start click, or an intermediate profile screen. Before using a slot or submitting, AutoJob rechecks the active page, its form/frame and its destination URL. A late redirect to a job-board profile editor (such as Jobicy's `/my-profile`) is skipped without modifying that profile and without consuming `maxJobsPerRun`.
+
+Some legitimate ATS forms (including Askable-style forms) label a contact input simply **Name**. A repeated label/ID such as `Name name name` now maps to the verified `profile.fullName`, or explicitly supplied first and last name. This does not authorize filling employer, reference, supervisor, or emergency-contact names. Privacy-policy agreements and attestations still require manual review; they are never accepted automatically.

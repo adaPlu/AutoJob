@@ -19,6 +19,14 @@ export function isAccountProfilePage(url='') {
     (/jobicy\.com$/i.test(u.hostname) && /(?:^|\/)edit-profile(?:\/|$)/i.test(u.pathname));}
   catch{return false;}
 }
+// Recheck the page, frame and form after asynchronous Apply redirects. An early
+// application form must never authorize editing a later job-board account page.
+export async function isProfileRedirect(page,form=null) {
+  if(isAccountProfilePage(page?.url?.()) || isAccountProfilePage(form?.frame?.url?.()))return true;
+  if(!form?.root)return false;
+  return form.root.evaluate(e=>e.id==='edit_user' || !!e.closest('form#edit_user') ||
+    !!e.querySelector('form#edit_user')).catch(()=>false);
+}
 const noise = /search job|search here|sign in|log in|password|register|newsletter|subscribe|job alert/i;
 const SENSITIVE = /\b(?:captcha|password|ssn|social security|birth(?:day|date)?|date of birth|disab(?:ility|led)?|gender|pronouns|sex assigned|race|ethnic|veteran|criminal|arrest|conviction|signature|terms|consent|agree(?:ment)?|background check|security clearance|references?|marital|religio|national origin)\b/i;
 const DO_NOT_INFER = /\b(?:current employer|company name|job title|current title|education|school|university|graduat|degree|start date|end date|years? of experience|salary history|notice period|referral|referred by|available to start)\b/i;
@@ -55,6 +63,7 @@ export async function findApplicationScope(page) {
   if(isAccountProfilePage(page.url?.()))return null;
   let best = null;
   for (const frame of page.frames()) {
+    if(isAccountProfilePage(frame.url()))continue;
     const candidates=frame.locator(SCOPES);
     const n=Math.min(40,await candidates.count().catch(()=>0));
     for(let i=0;i<n;i++) {
@@ -105,6 +114,11 @@ export function answerForQuestion(description, type, profile={}, config={}) {
   if (/cover letter/i.test(text)) return '';
   if (/additional information|why .*interested/i.test(text)) return config.coverLetterText || '';
   if (/first.?name/i.test(text) && /last.?name/i.test(text)) return profile.fullName || `${profile.firstName||''} ${profile.lastName||''}`.trim();
+  // A single full-name input commonly appears as "Name Name name" because
+  // label, name and id are all collected. Match *only* repetitions of that
+  // exact contact label, not employer names, references or other questions.
+  if (/^(?:name(?: name){0,4}|full name(?: (?:name|full name)){0,3}|applicant name(?: (?:name|applicant name)){0,3}|candidate name(?: (?:name|candidate name)){0,3})$/.test(norm(text)))
+    return profile.fullName || `${profile.firstName||''} ${profile.lastName||''}`.trim();
   for (const [regex,key] of FIELD_MAP) if(regex.test(text)) return profile[key] || '';
   if (type === 'email') return profile.email || '';
   if (type === 'tel') return profile.phone || '';
