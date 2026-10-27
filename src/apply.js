@@ -4,7 +4,7 @@ import path from 'node:path';
 import { hashJob, updateLedger } from './submission-ledger.js';
 import { plausibleRoleTitle, postingRemoteStatus, classificationFromApplication } from './eligibility.js';
 import { isJobUrl, fitScore as computeFitScore } from './discover.js';
-import { findApplicationScope, fillApplicationScope, inspectApplicationResume, getRequiredBlockers, getLegalConsentBlockers, formFingerprint, getAction } from './forms.js';
+import { findApplicationScope, fillApplicationScope, inspectApplicationResume, getRequiredBlockers, getLegalConsentBlockers, formFingerprint, getAction, isAccountProfilePage } from './forms.js';
 import { trySimplifyAutofill, trySimplifyStartApplicationOnPages, simplifySettings } from './simplify-copilot.js';
 import { handleSiteAcknowledgements } from './acknowledgements.js';
 import { collectScreeningReview } from './screening-questions.js';
@@ -318,15 +318,22 @@ export async function processJob({context,job,config,profile,resumePath,outboxDi
       await clearNotices(landing);
       const apply=await clickByNames(landing,[/^easy apply$/i,/^apply now$/i,/^apply$/i,/^apply for this job$/i,/^start application$/i,/^apply on company (?:site|website)$/i,/^continue to application$/i,/^apply on (?:external|company) site$/i,/^apply for (?:this|the) position$/i,/^apply to (?:this|the) (?:job|position)$/i,/^apply with linkedin$/i,/^apply using (?:resume|profile)$/i,/^start (?:your )?application$/i]);
       if(!apply.clicked){result.status='needs-review';result.blocker=`No application button found at ${landing.url()}`;return result;}
-      markApplicationStarted();
+      // An Apply click may redirect to a job-board profile editor instead of an employer application.
+      // Count the workflow only once a genuine applicant form is identified.
       result.status='application-opened';
       await wait(1800);
       landing=activePage(pages,basePage);
       await landing.waitForLoadState('domcontentloaded',{timeout:7000}).catch(()=>{});
       await clearNotices(landing);
+      if(isAccountProfilePage(landing.url())){
+        result.status='skipped-not-application-form';
+        result.blocker='Apply redirected to a job-board profile editor, not an employer application.';
+        return result;
+      }
       const landingStatus=classificationFromApplication(await pageText(landing));
       if(landingStatus){result.status=landingStatus;result.blocker='Site requires manual sign-in or human verification';return result;}
       form=await findApplicationScope(landing);
+      if(form)markApplicationStarted();
     }
     if(!form){result.status='needs-review';result.blocker=`The employer application form was not detected after opening Apply (${landing.url()})`;return result;}
     let resumeEverVerified=false;
