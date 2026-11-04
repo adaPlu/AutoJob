@@ -359,3 +359,7 @@ Résumé upload detection now recognizes explicitly labeled and some hidden uplo
 Application-slot accounting is based on a vetted application form, **not** an Apply button, a Simplify Start click, or an intermediate profile screen. Before using a slot or submitting, AutoJob rechecks the active page, its form/frame and its destination URL. A late redirect to a job-board profile editor (such as Jobicy's `/my-profile`) is skipped without modifying that profile and without consuming `maxJobsPerRun`.
 
 Some legitimate ATS forms (including Askable-style forms) label a contact input simply **Name**. A repeated label/ID such as `Name name name` now maps to the verified `profile.fullName`, or explicitly supplied first and last name. This does not authorize filling employer, reference, supervisor, or emergency-contact names. Privacy-policy agreements and attestations still require manual review; they are never accepted automatically.
+
+### Chrome GPU launch stability on Windows
+
+Both `START_CHROME.bat` and `scripts/start-chrome.ps1` use Chrome's `--disable-gpu` switch with the dedicated AutoJob profile and CDP port 9222. This avoids a Windows Chrome session failure observed when navigating search tabs after they were created. It **does not disable Chrome extensions**, erase sign-ins, or modify user preferences. If a Chrome instance with that profile is already running, its original startup switches remain in effect until the profile is closed and restarted. Never terminate unrelated Chrome sessions or delete the profile to apply this change.
