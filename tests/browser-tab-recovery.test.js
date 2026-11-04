@@ -40,3 +40,35 @@ test('persistent refusal is an actionable error rather than an unhandled crash',
   );
   assert.equal(attempts,3);
 });
+
+test('search acquisition retains an existing AutoJob-owned tab even when Chrome rejects new tabs',async()=>{
+  const {acquireSearchTab}=await import('../src/browser.js');
+  let createCalls=0,timeout=0;
+  const page={isClosed:()=>false,setDefaultTimeout:n=>{timeout=n;}};
+  const context={newPage:async()=>{createCalls++;throw new Error('Target.createTarget failed');}};
+  const chosen=await acquireSearchTab(context,{searchPage:page});
+  assert.strictEqual(chosen,page);
+  assert.equal(createCalls,0);
+  assert.equal(timeout,8500);
+});
+
+test('search acquisition falls back safely if reserved AutoJob tab has been closed',async()=>{
+  const {acquireSearchTab}=await import('../src/browser.js');
+  let createCalls=0;
+  const fresh={setDefaultTimeout:()=>{}};
+  const context={newPage:async()=>{createCalls++;return fresh;}};
+  const chosen=await acquireSearchTab(context,{searchPage:{isClosed:()=>true}});
+  assert.equal(chosen,fresh);
+  assert.equal(createCalls,1);
+});
+
+test('persistent target refusal exposes underlying cause in startup error for diagnosis',async()=>{
+  const context={newPage:async()=>{throw new Error('Protocol error (Target.createTarget): insufficient resources');}};
+  await assert.rejects(
+    openSearchTab(context,{maxAttempts:2,retryDelayMs:0,logger:{warn:()=>{}}}),
+    error=>error instanceof ChromeTabUnavailableError
+      && /Target\.createTarget/.test(error.message)
+      && /insufficient resources/.test(error.message)
+      && /No job search or submission started/.test(error.message)
+  );
+});

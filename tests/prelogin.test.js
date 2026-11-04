@@ -92,3 +92,59 @@ test('pending login tabs may be released on Chrome resource failure without touc
    assert.equal(await stage.releaseLoginTabs(),0,'resource recovery must be idempotent');
  }finally{fs.rmSync(root,{recursive:true,force:true});}
 });
+
+test('discovery reuses a verified AutoJob login tab without creating a new Chrome target',async()=>{
+ const {acquireSearchTab}=await import('../src/browser.js');
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'job-login-reuse-'));
+ const states=[
+   {url:'https://www.linkedin.com/login',signals:{passwordVisible:true,signInVisible:true},closed:false},
+   {url:'https://simplify.jobs/',signals:{signOutVisible:true},closed:false}
+ ];
+ const ctx=contextWithStates(states);
+ const original=ctx.newPage.bind(ctx);
+ let created=0;
+ ctx.newPage=async()=>{
+   if(++created>2)throw new Error('Protocol error (Target.createTarget): no new tabs available');
+   return original();
+ };
+ try {
+   const stage=await runPreLogin({context:ctx,root,config:{sources:['linkedin','simplify'],preLogin:{closeLoginTabs:true}},
+     ask:async()=> 'READY',logger:{log:()=>{},warn:()=>{}}});
+   assert.equal(stage.proceed,true);
+   assert.equal(states[0].closed,true,'blocked login tab should be closed');
+   assert.equal(states[1].closed,false,'one AutoJob-owned eligible tab is reserved');
+   assert.ok(stage.searchPage,'eligible page must be available for discovery');
+   const page=await acquireSearchTab(ctx,stage);
+   assert.strictEqual(page,stage.searchPage);
+   assert.equal(created,2,'no new Chrome target should be needed at handoff');
+   assert.equal(await stage.releaseLoginTabs(),0,'resource cleanup is idempotent');
+   assert.equal(states[1].closed,false,'retained search page is owned by search workflow');
+   await page.close();
+   assert.equal(states[1].closed,true);
+ }finally{fs.rmSync(root,{recursive:true,force:true});}
+});
+
+test('prelogin does not repurpose user-retained account tabs when closeLoginTabs=false',async()=>{
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'job-login-preserve-'));
+ const state={url:'https://www.linkedin.com/feed/',signals:{signOutVisible:true},closed:false};
+ try{
+   const stage=await runPreLogin({context:contextWithStates([state]),root,
+     config:{sources:['linkedin'],preLogin:{closeLoginTabs:false}},
+     ask:async()=> 'READY',logger:{log:()=>{},warn:()=>{}}});
+   assert.equal(stage.searchPage,null);
+   assert.equal(state.closed,false);
+   assert.equal(await stage.releaseLoginTabs(),1);
+ }finally{fs.rmSync(root,{recursive:true,force:true});}
+});
+
+test('prelogin never reserves blocked sign-in or CAPTCHA pages for search',async()=>{
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'job-login-blocked-'));
+ const state={url:'https://www.dice.com/login',signals:{challenge:true},closed:false};
+ try{
+   const stage=await runPreLogin({context:contextWithStates([state]),root,
+     config:{sources:['dice'],preLogin:{closeLoginTabs:true}},
+     ask:async()=> 'READY',logger:{log:()=>{},warn:()=>{}}});
+   assert.equal(stage.searchPage,null);
+   assert.equal(state.closed,true);
+ }finally{fs.rmSync(root,{recursive:true,force:true});}
+});

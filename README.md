@@ -363,3 +363,9 @@ Some legitimate ATS forms (including Askable-style forms) label a contact input 
 ### Chrome GPU launch stability on Windows
 
 Both `START_CHROME.bat` and `scripts/start-chrome.ps1` use Chrome's `--disable-gpu` switch with the dedicated AutoJob profile and CDP port 9222. This avoids a Windows Chrome session failure observed when navigating search tabs after they were created. It **does not disable Chrome extensions**, erase sign-ins, or modify user preferences. If a Chrome instance with that profile is already running, its original startup switches remain in effect until the profile is closed and restarted. Never terminate unrelated Chrome sessions or delete the profile to apply this change.
+
+### Reusing a prelogin tab for discovery (Windows Chrome stability)
+
+When `preLogin.closeLoginTabs` is enabled, AutoJob now keeps **one eligible tab it created during the account-login check** and uses that page for the first job-search query. It closes the other AutoJob-created login tabs. This avoids Chrome's intermittent `Target.createTarget` refusal immediately after closing 15 account tabs. It never adopts, navigates, or closes tabs that the user opened independently, and it never reserves a login-required or CAPTCHA tab. The retained page is closed in the normal search cleanup.
+
+If `preLogin.closeLoginTabs=false`, account tabs remain open as before and discovery creates its own tab. If no eligible AutoJob tab exists, the existing bounded new-tab retry path is used. Startup failure reports now include a short underlying Chrome/Playwright error instead of only the generic instruction. This does not authorize auto-accepting legal agreements or submitting applications during prelogin.

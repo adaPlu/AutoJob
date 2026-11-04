@@ -173,28 +173,37 @@ export async function runPreLogin({context,config={},root,ask=defaultPrompt,logg
     status.push({source:item.source,label:item.label,url:safeSiteUrl(item.page?.url?.()||item.url),state,autoSearchEnabled,manuallyAcknowledged:true});
     logger.log(`  ${displayState}: ${item.label}`);
   }
-  // All login tabs were created by AutoJob, so they may be safely released if Chrome
-  // later runs out of tab resources. Never close existing/user-created Chrome tabs.
+  const blocked=status.filter(s=>!s.autoSearchEnabled).map(s=>s.source);
+  const isStrict=settings.requireAllAccountSessions===true;
+  const proceed=!isStrict||!blocked.length;
+  // Reuse ONE AutoJob-created login tab as the search tab. Chrome sometimes refuses
+  // Target.createTarget immediately after closing 15 login tabs, even when CDP is
+  // still connected. Navigating an owned, already-open tab avoids that handoff.
+  // Only do this when login tabs were going to be closed, and never retain a
+  // blocked login/CAPTCHA tab or touch tabs opened by the user.
+  const searchable=new Set(status.filter(s=>s.autoSearchEnabled).map(s=>s.source));
+  const searchPage=proceed && settings.closeLoginTabs!==false
+    ? opened.find(o=>o.page && !o.page.isClosed() && searchable.has(o.source))?.page || null
+    : null;
+  // Release all other login tabs. The reserved tab is owned by the automator
+  // and is closed by the main search workflow on completion.
   let loginTabsReleased=false;
   const releaseLoginTabs=async()=>{
     if(loginTabsReleased)return 0;
     let released=0;
     for(const o of opened){
-      if(!o.page || o.page.isClosed())continue;
+      if(!o.page || o.page===searchPage || o.page.isClosed())continue;
       try{await o.page.close({runBeforeUnload:false});released++;}catch{}
     }
     loginTabsReleased=true;
     return released;
   };
-  // Keep the existing closeLoginTabs preference unless resource recovery is necessary.
   if(settings.closeLoginTabs!==false)await releaseLoginTabs();
+  if(searchPage)logger.log('Reusing one AutoJob-owned login tab for discovery to avoid creating a new Chrome target.');
   const report=buildReporter(status,config,root);
-  const blocked=status.filter(s=>!s.autoSearchEnabled).map(s=>s.source);
-  const isStrict=settings.requireAllAccountSessions===true;
-  const proceed=!isStrict||!blocked.length;
   logger.log(`AUTOMATIC SEARCH ENABLED: ${status.filter(s=>s.autoSearchEnabled).length}/${status.length} account-based sites. ${blocked.length} require attention.${isStrict&&!proceed?' Strict mode will stop this run.':''}`);
   logger.log('Any site labeled AUTO-ENABLED will be searched and applications attempted automatically, subject to the normal limits and job filters.');
   logger.log('A sign-in marked unverified does not certify that the account is authenticated.');
   logger.log(`Report saved to data/prelogin-status.json.`);
-  return {enabled:true,proceed,blockedSources:settings.skipUnavailableSources===false?[]:blocked,report,plan,releaseLoginTabs};
+  return {enabled:true,proceed,blockedSources:settings.skipUnavailableSources===false?[]:blocked,report,plan,releaseLoginTabs,searchPage};
 }

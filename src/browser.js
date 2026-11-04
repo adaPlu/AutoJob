@@ -17,7 +17,8 @@ export async function newTab(context) {
 
 export class ChromeTabUnavailableError extends Error {
   constructor(cause) {
-    super('Chrome cannot open a search tab. Close excess tabs in the dedicated AutoJob Chrome window, restart that Chrome profile with START_CHROME.bat if needed, and rerun. No job search or submission started.', {cause});
+    const detail=String(cause?.message||cause||'unknown cause').replace(/\s+/g,' ').slice(0,240);
+    super(`Chrome cannot open a search tab. Underlying error: ${detail}. Close excess tabs in the dedicated AutoJob Chrome window, restart that Chrome profile with START_CHROME.bat if needed, and rerun. No job search or submission started.`, {cause});
     this.name='ChromeTabUnavailableError';
   }
 }
@@ -45,4 +46,18 @@ export async function openSearchTab(context,{maxAttempts=3,retryDelayMs=800,onRe
     }
   }
   throw new ChromeTabUnavailableError(lastError);
+}
+
+/**
+ * Reuse an AutoJob-owned prelogin page when possible instead of creating a
+ * Chrome target immediately after the login stage closed its other pages.
+ * Never navigate or close an arbitrary user-owned browser tab.
+ */
+export async function acquireSearchTab(context,loginStage={},options={}) {
+  const retained=loginStage?.searchPage;
+  if(retained && !retained.isClosed()) {
+    retained.setDefaultTimeout(8500);
+    return retained;
+  }
+  return openSearchTab(context,{onResourceError:loginStage?.releaseLoginTabs,...options});
 }

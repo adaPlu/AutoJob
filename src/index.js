@@ -101,8 +101,10 @@ const ledger=readLedger(ledgerFile);
 const maxAttempts=Math.max(1,Number(config.maxJobAttempts)||3);
 let searchPage;
 try {
-  const { openSearchTab }=await import('./browser.js');
-  searchPage=await openSearchTab(context,{onResourceError:loginStage.releaseLoginTabs});
+  const { acquireSearchTab }=await import('./browser.js');
+  // The AutoJob-owned prelogin tab avoids an unnecessary Chrome Target.createTarget
+  // at precisely the stage that previously exhausted the browser.
+  searchPage=await acquireSearchTab(context,loginStage);
 } catch(error) {
   const message=String(error?.message||error);
   console.error(`CHROME STARTUP FAILED: ${message}`);
