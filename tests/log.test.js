@@ -63,3 +63,41 @@ test('resolvable form review does not permanently lock the submission ledger', (
  ledger.set('https://example.org/job/123',{state:'submit-attempted'});
  assert.match(shouldSkipJob('https://example.org/job/123',hist,ledger,3),/submit-ledger/);
 });
+
+test('saved application history blocks a second run for tracked versions of one job',()=>{
+  const dir=tmp();
+  try {
+    const file=path.join(dir,'application-log.csv');
+    const base='https://www.linkedin.com/jobs/view/4488434259/';
+    appendLog(file,{url:base+'?alternateChannel=search&isJobSearch=false',status:'submit-clicked-unverified'});
+    // Emulate a new process: recreate the history from disk, not an in-memory set.
+    const reloaded=applicationHistory(file);
+    assert.equal(shouldSkipJob(base,reloaded,new Map()),'previous-unverified-submit-requires-review');
+    assert.equal(shouldSkipJob(base+'?searchId=another',reloaded,new Map()),'previous-unverified-submit-requires-review');
+    assert.equal(shouldSkipJob('https://www.linkedin.com/jobs/view/4488434260/',reloaded,new Map()),'');
+  }finally{fs.rmSync(dir,{recursive:true,force:true});}
+});
+
+test('legacy ledger tracking aliases survive upgrade and avoid duplicate submit after restart',()=>{
+  const dir=tmp();
+  try {
+    const file=path.join(dir,'submit-ledger.json');
+    const base='https://www.linkedin.com/jobs/view/4488434259/';
+    const alias=base+'?alternateChannel=search&isJobSearch=false';
+    // Simulate a crash after recording intent but before appending the CSV log.
+    fs.writeFileSync(file,JSON.stringify({[alias]:{state:'submit-attempted',url:alias,updatedAt:'2026-11-01T00:00:00Z'}}));
+    assert.equal(shouldSkipJob(base,new Map(),readLedger(file)),'submit-ledger-submit-attempted');
+    assert.equal(readLedger(file).size,1);
+    // If alias records conflict, prefer the protective state until a deliberate
+    // manual resolution, instead of accidentally permitting a second submit.
+    fs.writeFileSync(file,JSON.stringify({
+      [alias]:{state:'submit-attempted',url:alias,updatedAt:'2026-11-01T00:00:00Z'},
+      [base]:{state:'needs-review',url:base,updatedAt:'2026-11-02T00:00:00Z'}
+    }));
+    assert.equal(shouldSkipJob(base,new Map(),readLedger(file)),'submit-ledger-submit-attempted');
+    updateLedger(file,base,'submit-clicked-unverified');
+    assert.equal(readLedger(file).size,1,'subsequent writes must consolidate aliases into a single job entry');
+    assert.equal(shouldSkipJob(alias,new Map(),readLedger(file)),'submit-ledger-submit-clicked-unverified');
+    assert.equal(shouldSkipJob('https://www.linkedin.com/jobs/view/4488434260/',new Map(),readLedger(file)),'');
+  }finally{fs.rmSync(dir,{recursive:true,force:true});}
+});
