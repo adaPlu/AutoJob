@@ -31,3 +31,20 @@ test('remote work gate and auth gate',()=>{
  assert.equal(classificationFromApplication('Sign in with email address and password'),'authentication-required');
  assert.equal(classificationFromApplication('Please complete the CAPTCHA'),'blocked');
 });
+
+test('job identity ignores tracking URLs without merging different job IDs',()=>{
+  const linkedin='https://www.linkedin.com/jobs/view/4488434259/';
+  assert.equal(normalizeUrl(linkedin+'?alternateChannel=search&isJobSearch=false',linkedin),linkedin);
+  assert.equal(normalizeUrl('https://linkedin.com/jobs/view/4488434259/?searchId=abc',linkedin),linkedin);
+  assert.equal(normalizeUrl('https://www.linkedin.com/jobs/search/?currentJobId=4488434259',linkedin),linkedin);
+  assert.notEqual(normalizeUrl('https://www.linkedin.com/jobs/view/4488434258/',linkedin),linkedin);
+  assert.equal(normalizeUrl('https://jobright.ai/jobs/info/abc123?visit=visit-token','https://jobright.ai'),
+    'https://jobright.ai/jobs/info/abc123');
+  assert.equal(normalizeUrl('https://app.joinhandshake.com/jobs/123456?searchId=foo','https://app.joinhandshake.com'),
+    'https://app.joinhandshake.com/jobs/123456');
+  assert.equal(normalizeUrl('https://external-teldta.icims.com/jobs/1234/swe/job?in_iframe=1','https://external-teldta.icims.com'),
+    'https://external-teldta.icims.com/jobs/1234/swe/job');
+  assert.notEqual(normalizeUrl('https://www.indeed.com/viewjob?jk=job-a','https://www.indeed.com'),
+    normalizeUrl('https://www.indeed.com/viewjob?jk=job-b','https://www.indeed.com'),
+    'unique Indeed job identifiers must be preserved');
+});

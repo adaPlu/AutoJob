@@ -197,9 +197,20 @@ export function normalizeUrl(href, base) {
       'utm_source','utm_medium','utm_campaign','utm_term','utm_content',
       'gh_src','lever-source','iis','iisn','eBP','recommendedFlavor','ref','trkInfo','trackingCode','originalSubdomain'
     ].forEach(k => u.searchParams.delete(k));
-    if (/linkedin\.com$/i.test(u.hostname) && /^\/jobs\/(?:search-results|search)\/?$/i.test(u.pathname) && /^\d+$/.test(u.searchParams.get('currentJobId')||'')) {
-      return `https://www.linkedin.com/jobs/view/${u.searchParams.get('currentJobId')}/`;
+    if (/linkedin\.com$/i.test(u.hostname)) {
+      // One LinkedIn requisition can appear with alternateChannel, isJobSearch,
+      // searchId, or other tracking parameters. None identifies a new job.
+      if (/^\/jobs\/(?:search-results|search)\/?$/i.test(u.pathname) && /^\d+$/.test(u.searchParams.get('currentJobId')||'')) {
+        return `https://www.linkedin.com/jobs/view/${u.searchParams.get('currentJobId')}/`;
+      }
+      const job=u.pathname.match(/^\/jobs\/view\/(\d+)\/?$/i);
+      if (job) return `https://www.linkedin.com/jobs/view/${job[1]}/`;
     }
+    // These parameters describe how the user arrived at a known job ID,
+    // not a distinct job. Preserve other query parameters (e.g. Indeed jk).
+    if (/^(?:www\.)?jobright\.ai$/i.test(u.hostname) && /^\/jobs\/info\/[a-z0-9-]+\/?$/i.test(u.pathname)) u.searchParams.delete('visit');
+    if (/^app\.joinhandshake\.com$/i.test(u.hostname) && /^\/jobs\/\d+\/?$/i.test(u.pathname)) u.searchParams.delete('searchId');
+    if (/\.icims\.com$/i.test(u.hostname) && /\/jobs\/\d+\//i.test(u.pathname)) u.searchParams.delete('in_iframe');
     return u.toString();
   } catch { return ''; }
 }
